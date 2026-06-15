@@ -88,6 +88,7 @@ class ProjectConfig:
 
 class CLI(enum.StrEnum):
     CLAUDE = 'claude'
+    CLAUDE_INTERACTIVE = 'claude_interactive'
     GEMINI = 'gemini'
     CODEX = 'codex'
 

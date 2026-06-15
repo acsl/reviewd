@@ -88,7 +88,7 @@ def _format_summary_comment(
     approved: bool = False,
     approve_blocked_reason: str | None = None,
 ) -> str:
-    cli_name = cli.value.capitalize()
+    cli_name = ('claude' if cli == CLI.CLAUDE_INTERACTIVE else cli.value).capitalize()
     title = global_config.review_title.replace('{cli}', cli_name)
     lines = [f'## {title}', '']
 

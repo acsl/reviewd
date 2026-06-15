@@ -1,6 +1,6 @@
 [project]
 name = "reviewd"
-version = "0.6.4"
+version = "0.7.0"
 description = "Local AI code reviewer for GitHub and BitBucket PRs — uses Claude, Gemini, or Codex CLI to review pull requests and post structured comments"
 readme = "README.md"
 license = "MIT"
@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "click>=8.3.1,<9",
     "httpx>=0.28.1,<1",
+    "pexpect>=4.9,<5",
     "pyyaml>=6.0,<7",
     "questionary>=2.1.1,<3",
 ]

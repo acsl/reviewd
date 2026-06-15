@@ -161,7 +161,7 @@ bitbucket:
   your-workspace: you@example.com:${BB_API_TOKEN}
   other-workspace: other@example.com:${OTHER_BB_TOKEN}
 
-cli: claude                    # or "gemini" or "codex"
+cli: claude                    # "claude", "claude_interactive", "gemini", or "codex"
 # model: claude-sonnet-4-5-20250514
 
 # review_title: "review'd by {cli}"
@@ -237,6 +237,29 @@ auto_approve:
 All gates must pass — if any one blocks, the PR is not approved. The `rules` field is sent verbatim to the AI as part of the review prompt, so write it as instructions.
 
 `auto_approve` can also be set in the global config and will be inherited by all repos. Per-project settings override global ones.
+
+### Subscription billing (`claude_interactive`)
+
+By default `cli: claude` runs Claude in headless mode (`claude --print`), which bills against your **Anthropic API credits**. The `claude_interactive` mode instead drives a real **interactive** Claude session, so reviews bill against your **Claude subscription** (Pro/Max) like normal CLI usage.
+
+```yaml
+cli: claude_interactive
+# model: claude-sonnet-4-5-20250514   # optional, same as other modes
+```
+
+You can also use it ad-hoc: `reviewd pr <repo> <id> --cli claude_interactive`.
+
+**How it differs from `claude`:**
+
+- Runs `claude` (no `--print`) over a pseudo-terminal (PTY) — no `tmux` or other dependency required.
+- The full review prompt is passed as the session's initial message (a single argv element, same as headless mode minus the `--print` flag).
+- Claude writes the structured JSON to a file in the worktree (atomic `Write` + `mv`); reviewd waits for that file, while watching the session for usage/login errors and an overall timeout.
+
+**Requirements & notes:**
+
+- `claude` must be logged in to your subscription (`claude` → `/login`). If `ANTHROPIC_API_KEY` is exported in the environment, Claude may still use it — unset it to force subscription usage.
+- Runs with `--dangerously-skip-permissions` so Claude's Read/Bash/Write tools run unattended inside the throwaway worktree. The session is hardened: `Edit` is disallowed (the reviewer only creates the result file) and MCP servers are disabled (`--strict-mcp-config`) for a clean, hermetic run.
+- Everything else (findings, inline comments, auto-approve, the public "review'd by Claude" title) behaves exactly like `claude`.
 
 ## CLI Reference
 

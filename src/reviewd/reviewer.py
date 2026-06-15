@@ -33,15 +33,23 @@ _GIT_ENV = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_LFS_SKIP_SMUDGE': '1'
 _repo_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
 _active_procs: set[subprocess.Popen] = set()
 _active_procs_lock = threading.Lock()
+# Interactive PTY children (pexpect spawns its own session leader, not a Popen)
+_active_pty_pids: set[int] = set()
+_active_pty_pids_lock = threading.Lock()
 
 
 def terminate_all():
     with _active_procs_lock:
         procs = list(_active_procs)
+    with _active_pty_pids_lock:
+        pty_pids = list(_active_pty_pids)
     for proc in procs:
         with contextlib.suppress(OSError):
             # Kill entire process group (subprocess is session leader)
             os.killpg(proc.pid, signal.SIGTERM)
+    for pid in pty_pids:
+        with contextlib.suppress(OSError):
+            os.killpg(pid, signal.SIGTERM)
     # Give processes a moment to die, then force-kill survivors
     for proc in procs:
         try:
@@ -49,6 +57,9 @@ def terminate_all():
         except subprocess.TimeoutExpired:
             with contextlib.suppress(OSError):
                 os.killpg(proc.pid, signal.SIGKILL)
+    for pid in pty_pids:
+        with contextlib.suppress(OSError):
+            os.killpg(pid, signal.SIGKILL)
 
 
 def cleanup_stale_worktrees(repo_path: str):
@@ -336,6 +347,115 @@ def _build_cli_command(
     return [*base, *model_args, *extra, '-p', prompt_text], None
 
 
+PTY_POLL_INTERVAL = 2
+_PTY_TRUST_RE = r'(?i)(do you trust|trust the files in this)'
+# Specific CLI error banners only — bare phrases like "rate limit" would false-match
+# against Claude's own review prose / code it quotes, aborting valid reviews.
+_PTY_ERROR_RE = (
+    r'(?i)(' r'usage limit reached|' r'5-hour limit reached|' r'credit balance is too low|' r'please run /login' r')'
+)
+
+
+def _terminate_pty(child) -> None:
+    with contextlib.suppress(Exception):
+        os.killpg(child.pid, signal.SIGTERM)
+    with contextlib.suppress(Exception):
+        child.terminate(force=True)
+
+
+def _read_review_file(output_path: str) -> str | None:
+    """Return the review file's contents once it exists and is non-empty, else None."""
+    path = Path(output_path)
+    if not path.exists():
+        return None
+    content = path.read_text()
+    return content if content.strip() else None
+
+
+def _invoke_claude_interactive(
+    prompt: str,
+    cwd: str,
+    output_path: str,
+    timeout: int = DEFAULT_TIMEOUT,
+    model: str | None = None,
+    cli_args: list[str] | None = None,
+) -> str:
+    import pexpect
+
+    # Hermetic, hardened interactive session:
+    # - skip-permissions: tools run unattended (no one to answer prompts)
+    # - disallow Edit: the reviewer only creates the output file, never edits existing ones
+    #   (Write + Bash must stay: Write produces the JSON, Bash runs git/tests + the mv)
+    # - empty + strict MCP config: ignore the user's global MCP servers for a clean env
+    args = [
+        '--dangerously-skip-permissions',
+        '--disallowedTools',
+        'Edit',
+        '--mcp-config',
+        '{"mcpServers":{}}',
+        '--strict-mcp-config',
+    ]
+    if model:
+        args += ['--model', model]
+    if cli_args:
+        args += cli_args
+    # Full prompt as a single positional argv element (no shell, like `-p`); interactive
+    # Claude accepts a multi-line positional prompt and submits it as one message.
+    args.append(prompt)
+
+    env = {**os.environ}
+    env.pop('CLAUDECODE', None)
+
+    display_args = [*args[:-1], '<prompt>']
+    logger.info('Running interactive: claude %s (cwd=%s, timeout=%ds)', ' '.join(display_args), cwd, timeout)
+    logger.debug('Prompt:\n%s', prompt)
+
+    child = None
+    try:
+        try:
+            child = pexpect.spawn('claude', args, cwd=cwd, env=env, encoding='utf-8', dimensions=(40, 140))
+        except pexpect.ExceptionPexpect as e:
+            raise RuntimeError(f'"claude" CLI not found. {_CLI_NOT_FOUND_HINTS[CLI.CLAUDE]}') from e
+        pid = child.pid
+        if pid is not None:
+            with _active_pty_pids_lock:
+                _active_pty_pids.add(pid)
+
+        patterns = [_PTY_TRUST_RE, _PTY_ERROR_RE, pexpect.EOF, pexpect.TIMEOUT]
+        deadline = time.monotonic() + timeout
+        result = None
+        while result is None:
+            result = _read_review_file(output_path)
+            if result is not None:
+                break
+            if time.monotonic() > deadline:
+                raise RuntimeError(f'claude_interactive timed out after {timeout}s with no output file')
+            idx = child.expect(patterns, timeout=PTY_POLL_INTERVAL)
+            if idx == 0:
+                logger.debug('[claude_interactive] trust dialog, accepting default')
+                child.sendline('')
+            elif idx == 1:
+                after = child.after if isinstance(child.after, str) else ''
+                tail = (child.before or '')[-500:] + after
+                raise RuntimeError(f'claude_interactive error: {tail.strip()}')
+            elif idx == 2:
+                result = _read_review_file(output_path)
+                if result is not None:
+                    break
+                tail = (child.before or '')[-500:]
+                raise RuntimeError(f'claude exited before writing output: {tail.strip()}')
+
+        logger.info('Read output from PTY review file (%d chars)', len(result))
+        return result
+    finally:
+        if child is not None and child.pid is not None:
+            with _active_pty_pids_lock:
+                _active_pty_pids.discard(child.pid)
+            _terminate_pty(child)
+        Path(output_path).unlink(missing_ok=True)
+        Path(output_path + '.tmp').unlink(missing_ok=True)
+
+
 def invoke_cli(
     prompt: str,
     cwd: str,
@@ -344,7 +464,13 @@ def invoke_cli(
     model: str | None = None,
     cli_args: list[str] | None = None,
     cli_defaults: dict[CLI, list[str]] | None = None,
+    output_path: str | None = None,
 ) -> str:
+    if cli == CLI.CLAUDE_INTERACTIVE:
+        if not output_path:
+            raise ValueError('output_path is required for claude_interactive mode')
+        return _invoke_claude_interactive(prompt, cwd, output_path, timeout=timeout, model=model, cli_args=cli_args)
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write(prompt)
         prompt_file = f.name
@@ -529,8 +655,16 @@ def review_pr(
     cli_defaults: dict[CLI, list[str]] | None = None,
 ) -> ReviewResult:
     worktree_path = create_worktree(repo_path, pr)
+    output_path = None
+    output_name = None
+    if cli == CLI.CLAUDE_INTERACTIVE:
+        # The prompt references the file by basename (cwd-relative) so the mv/Write
+        # instructions carry no user-controlled path; reviewd polls the absolute path.
+        output_name = '.reviewd-review.json'
+        output_path = os.path.join(worktree_path, output_name)
+        Path(output_path).unlink(missing_ok=True)
     try:
-        prompt = build_review_prompt(pr, project_config)
+        prompt = build_review_prompt(pr, project_config, output_file=output_name)
         t0 = time.monotonic()
         output = invoke_cli(
             prompt,
@@ -540,6 +674,7 @@ def review_pr(
             model=model,
             cli_args=cli_args,
             cli_defaults=cli_defaults,
+            output_path=output_path,
         )
         elapsed = time.monotonic() - t0
         logger.info('AI review completed in %.1fs', elapsed)

@@ -9,3 +9,5 @@ build/
 .env
 .env.*
 RESEARCH.md
+# CocoIndex Code (ccc)
+/.cocoindex_code/

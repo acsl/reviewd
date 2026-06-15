@@ -161,7 +161,7 @@ def init(ctx, sample: bool):
 @click.option('-v', '--verbose', is_flag=True, help='Enable verbose logging')
 @click.option('--dry-run', is_flag=True, help='Print reviews without posting')
 @click.option('--review-existing', is_flag=True, help='Review unreviewed open PRs on startup')
-@click.option('--cli', type=click.Choice(['claude', 'gemini', 'codex']), default=None, help='Override AI CLI')
+@click.option('--cli', type=click.Choice([c.value for c in CLI]), default=None, help='Override AI CLI')
 @click.option('--concurrency', type=int, default=None, help='Max concurrent reviews (default: 4)')
 @click.pass_context
 def watch(ctx, verbose: bool, dry_run: bool, review_existing: bool, cli: str | None, concurrency: int | None):
@@ -182,7 +182,7 @@ def watch(ctx, verbose: bool, dry_run: bool, review_existing: bool, cli: str | N
 @click.option('-v', '--verbose', is_flag=True, help='Enable verbose logging')
 @click.option('--dry-run', is_flag=True, help='Print review without posting')
 @click.option('--force', is_flag=True, help='Review even if already reviewed (bypasses cooldown/skip)')
-@click.option('--cli', type=click.Choice(['claude', 'gemini', 'codex']), default=None, help='Override AI CLI')
+@click.option('--cli', type=click.Choice([c.value for c in CLI]), default=None, help='Override AI CLI')
 @click.pass_context
 def pr(ctx, repo: str, pr_id: int, verbose: bool, dry_run: bool, force: bool, cli: str | None):
     """One-shot review of a specific PR."""
