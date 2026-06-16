@@ -348,7 +348,17 @@ def _build_cli_command(
 
 
 PTY_POLL_INTERVAL = 2
-_PTY_TRUST_RE = r'(?i)(do you trust|trust the files in this)'
+# The dialog title ("Do you trust the files in this folder?") arrives with ANSI/box
+# styling interleaved, so it never matches as a contiguous substring — match on the
+# plain-text body/option lines, which stream through clean.
+_PTY_TRUST_RE = (
+    r'(?i)('
+    r'do you trust|'
+    r'trust the files in this|'
+    r'yes, i trust this folder|'
+    r"what's in this folder first"
+    r')'
+)
 # Specific CLI error banners only — bare phrases like "rate limit" would false-match
 # against Claude's own review prose / code it quotes, aborting valid reviews.
 _PTY_ERROR_RE = (
@@ -361,6 +371,33 @@ def _terminate_pty(child) -> None:
         os.killpg(child.pid, signal.SIGTERM)
     with contextlib.suppress(Exception):
         child.terminate(force=True)
+
+
+def _pretrust_directory(cwd: str) -> None:
+    """Mark cwd as trusted in ~/.claude.json so the interactive first-run trust dialog
+    never fires. Best-effort: the broadened PTY matcher is the fallback if this fails."""
+    config_path = Path.home() / '.claude.json'
+    try:
+        config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(config, dict):
+        return
+    projects = config.setdefault('projects', {})
+    if not isinstance(projects, dict):
+        return
+    entry = projects.setdefault(os.path.abspath(cwd), {})
+    if not isinstance(entry, dict):
+        return
+    entry['hasTrustDialogAccepted'] = True
+    entry['hasCompletedProjectOnboarding'] = True
+    tmp = config_path.with_suffix('.json.tmp')
+    try:
+        tmp.write_text(json.dumps(config, indent=2))
+        tmp.replace(config_path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
 
 
 def _read_review_file(output_path: str) -> str | None:
@@ -405,6 +442,8 @@ def _invoke_claude_interactive(
 
     env = {**os.environ}
     env.pop('CLAUDECODE', None)
+
+    _pretrust_directory(cwd)
 
     display_args = [*args[:-1], '<prompt>']
     logger.info('Running interactive: claude %s (cwd=%s, timeout=%ds)', ' '.join(display_args), cwd, timeout)
