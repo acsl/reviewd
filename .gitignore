@@ -11,3 +11,6 @@ build/
 RESEARCH.md
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+#IntelliJ
+.idea/
+*.iml
