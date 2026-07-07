@@ -39,8 +39,8 @@ def test_full_review_posts_inline_and_summary(provider, state_db, pr, global_con
     assert len(tracked) == 2
 
 
-def test_re_review_deletes_old_comments_first(provider, state_db, pr, global_config, project_config):
-    """Second review deletes old comments before posting new ones."""
+def test_re_review_keeps_old_comments(provider, state_db, pr, global_config, project_config):
+    """Second review posts new comments without deleting old ones."""
     result = make_result([make_finding()])
 
     # First review
@@ -51,10 +51,10 @@ def test_re_review_deletes_old_comments_first(provider, state_db, pr, global_con
     # Second review
     post_review(provider, state_db, pr, result, project_config, global_config)
 
-    assert provider.deleted_comments == first_ids
+    assert provider.deleted_comments == []
     new_ids = state_db.get_comment_ids(pr.repo_slug, pr.pr_id)
-    assert len(new_ids) == 1
-    assert new_ids[0] != first_ids[0]
+    assert len(new_ids) == 2
+    assert first_ids[0] in new_ids
 
 
 def test_duplicate_findings_deduplicated(provider, state_db, pr, global_config, project_config):

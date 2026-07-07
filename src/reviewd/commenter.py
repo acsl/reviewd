@@ -269,16 +269,6 @@ def post_review(
 
     logger.info('Posting review: %d inline + summary comment', len(inline_findings))
 
-    old_comment_ids = state_db.get_comment_ids(pr.repo_slug, pr.pr_id)
-    if old_comment_ids:
-        logger.info('Deleting %d old comments on PR #%d', len(old_comment_ids), pr.pr_id)
-        deleted = 0
-        for cid in old_comment_ids:
-            if provider.delete_comment(pr.repo_slug, pr.pr_id, cid):
-                deleted += 1
-        state_db.delete_comments(pr.repo_slug, pr.pr_id)
-        logger.info('Deleted %d/%d old comments', deleted, len(old_comment_ids))
-
     for i, finding in enumerate(inline_findings, 1):
         logger.info('Posting inline comment %d/%d: %s:%s', i, len(inline_findings), finding.file, finding.line)
         body = _format_inline_comment(finding)
