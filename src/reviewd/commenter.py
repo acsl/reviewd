@@ -28,19 +28,27 @@ SEVERITY_EMOJI = {
 }
 
 
+def _hard_breaks(text: str) -> str:
+    # BitBucket/CommonMark render a lone newline as a space. Two trailing spaces
+    # before the newline turn it into a visible line break.
+    return text.replace('\n', '  \n')
+
+
 def _format_finding_summary(finding: Finding) -> str:
     loc = ''
     if finding.file:
         loc = f' — `{finding.file}`'
         if finding.line:
             loc += f' (line {finding.line})'
-    return f'- **{finding.title}**{loc}\n  {finding.issue}'
+    # Indent continuation lines so a multi-line issue stays inside the list item.
+    issue = finding.issue.replace('\n', '  \n  ')
+    return f'- **{finding.title}**{loc}  \n  {issue}'
 
 
 # TODO: support multi-line suggestions (end_line) — needs correct line range in provider API calls
 def _format_inline_comment(finding: Finding) -> str:
     emoji = SEVERITY_EMOJI.get(finding.severity, '')
-    parts = [f'{emoji} **{finding.title}**', finding.issue]
+    parts = [f'{emoji} **{finding.title}**', _hard_breaks(finding.issue)]
     if finding.fix:
         parts.append(f'```suggestion\n{finding.fix}\n```')
     return '\n\n'.join(parts)
@@ -99,7 +107,7 @@ def _format_summary_comment(
         lines.append('')
 
     if project_config.show_overview and result.overview:
-        lines.extend([result.overview, ''])
+        lines.extend([_hard_breaks(result.overview), ''])
 
     if result.tests_passed is not None:
         status = 'passed' if result.tests_passed else 'FAILED'
@@ -125,11 +133,15 @@ def _format_summary_comment(
         lines.append('')
 
     if result.summary:
-        lines.append(f'**Bottom line:** {result.summary}')
+        # Label on its own line + blank line so a markdown-list summary renders as a list
+        # rather than gluing the first bullet onto the bold label.
+        lines.append('**Bottom line:**')
+        lines.append('')
+        lines.append(_hard_breaks(result.summary))
         lines.append('')
 
     if approved and result.approve_reason:
-        lines.append(f'**Auto-approve rationale:** {result.approve_reason}')
+        lines.append(f'**Auto-approve rationale:** {_hard_breaks(result.approve_reason)}')
         lines.append('')
 
     if approve_blocked_reason:
@@ -221,7 +233,7 @@ def _handle_prior_comments(
     for cid, note in resolved_notes.items():
         try:
             if provider.resolve_comment(pr.repo_slug, pr.pr_id, cid):
-                body = f'{_RESOLVED_REPLY} {note}'.strip() if note else _RESOLVED_REPLY
+                body = f'{_RESOLVED_REPLY} {_hard_breaks(note)}'.strip() if note else _RESOLVED_REPLY
                 provider.reply_comment(pr.repo_slug, pr.pr_id, cid, body)
                 state_db.mark_comment_resolved(cid)
         except Exception:
@@ -230,7 +242,9 @@ def _handle_prior_comments(
     for f in matched_findings:
         if f.prior_id in open_ids and f.prior_id not in resolved_notes:
             try:
-                provider.reply_comment(pr.repo_slug, pr.pr_id, f.prior_id, f'{_UNRESOLVED_REPLY} {f.issue}'.strip())
+                provider.reply_comment(
+                    pr.repo_slug, pr.pr_id, f.prior_id, f'{_UNRESOLVED_REPLY} {_hard_breaks(f.issue)}'.strip()
+                )
             except Exception:
                 logger.exception('Failed to reply to prior comment %d on PR #%d', f.prior_id, pr.pr_id)
 

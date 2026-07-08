@@ -65,7 +65,8 @@ For `good`: praise for genuinely notable patterns or improvements. Skip generic 
 - Matter-of-fact. No flattery ("Great job", "Nice work"), no accusation. Read as a helpful AI suggestion, not a human reviewer.
 - State the preconditions: which inputs, environments, or scenarios are required for the bug to manifest. Severity depends on these — say so when relevant.
 - Do not overstate severity. Inflated criticals erode trust faster than missed nits.
-- Keep `issue` brief — one short paragraph, no line breaks inside prose.
+- In `issue`, wrap every code identifier, method/class name, constant, and file path in backticks (e.g. `getOemShipTo`, `STOCK_P/STOCK_D`, `OrderService.java`) so they render as inline code.
+- Keep `issue` readable — do NOT write one dense run-on paragraph. Lead with the core problem in one sentence, then put each additional point, precondition, or consequence on its own line.
 - In `fix`, preserve EXACT leading whitespace of the original line (tabs vs spaces, exact count). Do not change outer indentation level unless that IS the fix.
 
 ## Output
@@ -80,12 +81,12 @@ For `good`: praise for genuinely notable patterns or improvements. Skip generic 
       "title": "brief title",
       "file": "path/to/file.py",
       "line": 42,
-      "issue": "explanation",
+      "issue": "explanation — wrap code identifiers/paths in `backticks`; use newlines to separate distinct points instead of one run-on paragraph",
       "fix": "exact replacement for the SINGLE LINE specified by 'line'. Must have the same indentation as the original line. Can be multiple lines if the fix expands one line into several. No markdown, no code fences. null if the fix involves more than replacing one line.",
       "prior_id": null
     }}
   ],
-  "summary": "prioritized recommendations",
+  "summary": "prioritized recommendations as a markdown list — one `- ` bullet per recommendation, most important first, code identifiers in `backticks`",
   "tests_passed": true|false|null,
   "approve": true|false,
   "approve_reason": "one sentence explaining why this PR is safe to auto-approve, or why it should not be. null if auto-approve is not enabled",
