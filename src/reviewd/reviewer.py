@@ -17,6 +17,7 @@ from pathlib import Path
 from reviewd.models import (
     CLI,
     Finding,
+    PriorResolution,
     PRInfo,
     ProjectConfig,
     ReviewResult,
@@ -280,8 +281,9 @@ REVIEW_SCHEMA: dict = {
                     'line': {'type': ['integer', 'null']},
                     'issue': {'type': 'string'},
                     'fix': {'type': ['string', 'null']},
+                    'prior_id': {'type': ['integer', 'null']},
                 },
-                'required': ['severity', 'category', 'title', 'file', 'line', 'issue', 'fix'],
+                'required': ['severity', 'category', 'title', 'file', 'line', 'issue', 'fix', 'prior_id'],
                 'additionalProperties': False,
             },
         },
@@ -289,6 +291,18 @@ REVIEW_SCHEMA: dict = {
         'tests_passed': {'type': ['boolean', 'null']},
         'approve': {'type': 'boolean'},
         'approve_reason': {'type': ['string', 'null']},
+        'resolved_prior_ids': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'id': {'type': 'integer'},
+                    'note': {'type': 'string'},
+                },
+                'required': ['id', 'note'],
+                'additionalProperties': False,
+            },
+        },
     },
     'required': ['overview', 'findings', 'summary', 'tests_passed', 'approve', 'approve_reason'],
     'additionalProperties': False,
@@ -681,8 +695,15 @@ def parse_review_result(data: dict) -> ReviewResult:
                 end_line=f.get('end_line'),
                 issue=f.get('issue', ''),
                 fix=f.get('fix'),
+                prior_id=f.get('prior_id'),
             )
         )
+    resolved_priors = []
+    for r in data.get('resolved_prior_ids', []):
+        try:
+            resolved_priors.append(PriorResolution(comment_id=int(r['id']), note=r.get('note', '')))
+        except (KeyError, TypeError, ValueError):
+            logger.warning('Skipping malformed resolved_prior_ids entry: %r', r)
     return ReviewResult(
         overview=data.get('overview', ''),
         findings=findings,
@@ -690,6 +711,7 @@ def parse_review_result(data: dict) -> ReviewResult:
         tests_passed=data.get('tests_passed'),
         approve=bool(data.get('approve', False)),
         approve_reason=data.get('approve_reason'),
+        resolved_priors=resolved_priors,
     )
 
 
@@ -702,6 +724,7 @@ def review_pr(
     model: str | None = None,
     cli_args: list[str] | None = None,
     cli_defaults: dict[CLI, list[str]] | None = None,
+    prior_findings: list[dict] | None = None,
 ) -> ReviewResult:
     worktree_path = create_worktree(repo_path, pr)
     output_path = None
@@ -713,7 +736,7 @@ def review_pr(
         output_path = os.path.join(worktree_path, output_name)
         Path(output_path).unlink(missing_ok=True)
     try:
-        prompt = build_review_prompt(pr, project_config, output_file=output_name)
+        prompt = build_review_prompt(pr, project_config, output_file=output_name, prior_findings=prior_findings)
         t0 = time.monotonic()
         output = invoke_cli(
             prompt,

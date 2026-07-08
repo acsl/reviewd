@@ -11,6 +11,8 @@ class FakeProvider(GitProvider):
     def __init__(self):
         self.posted_comments: list[dict] = []
         self.deleted_comments: list[int] = []
+        self.resolved_comments: list[int] = []
+        self.replies: list[dict] = []
         self.approved: list[tuple[str, int]] = []
         self._next_comment_id = 100
 
@@ -38,6 +40,16 @@ class FakeProvider(GitProvider):
     def delete_comment(self, repo_slug, pr_id, comment_id):
         self.deleted_comments.append(comment_id)
         return True
+
+    def resolve_comment(self, repo_slug, pr_id, comment_id):
+        self.resolved_comments.append(comment_id)
+        return True
+
+    def reply_comment(self, repo_slug, pr_id, parent_id, body):
+        cid = self._next_comment_id
+        self._next_comment_id += 1
+        self.replies.append({'id': cid, 'parent': parent_id, 'body': body})
+        return cid
 
     def approve_pr(self, repo_slug, pr_id):
         self.approved.append((repo_slug, pr_id))

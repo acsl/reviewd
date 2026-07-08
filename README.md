@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/e99705d6-5595-478e-b5de-f47d3abcfa37
 - **Structured output** — severity-tagged findings with inline comments on specific lines and a summary comment.
 - **Batch mode or one-shot** — review a single PR on demand, or run a continuous local review loop across all your repos in an open terminal.
 - **Multi-repo, multi-AI** — different repos can use different AI backends, models, and review instructions.
-- **Smart re-reviews** — new commits on a PR trigger a fresh review; previous review comments are left in place.
+- **Smart re-reviews** — new commits on a PR trigger a fresh review. Previous inline comments are kept as a trace: the AI re-checks each one against the new code, marks the fixed ones resolved (with a short reply), and replies "not addressed yet" on the ones still open. Only genuinely new issues get new comments. (Comment resolution is BitBucket-only.)
 - **Draft-aware** — in batch mode, drafts are skipped unless the title contains `[review]`, `[claudiu]`, `[ask]`, or `[bot review]`. The `pr` command always reviews regardless of draft status.
 - **Auto-approve** — automatically approves PRs that pass configurable gates (diff size, severity, finding count) and AI-evaluated rules. Shows approval rationale in the summary comment.
 - **Critical tasks** — optionally creates a BitBucket PR task on critical findings to block merge.

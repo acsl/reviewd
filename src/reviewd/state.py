@@ -45,6 +45,24 @@ class StateDB:
                 ON posted_comments (repo_slug, pr_id);
         """
         )
+        self._migrate_posted_comments()
+
+    def _migrate_posted_comments(self):
+        existing = {row['name'] for row in self.conn.execute('PRAGMA table_info(posted_comments)')}
+        additions = {
+            'kind': "TEXT NOT NULL DEFAULT 'inline'",
+            'file': 'TEXT',
+            'line': 'INTEGER',
+            'title': 'TEXT',
+            'issue': 'TEXT',
+            'severity': 'TEXT',
+            'resolved': 'INTEGER NOT NULL DEFAULT 0',
+            'source_commit': 'TEXT',
+        }
+        for name, decl in additions.items():
+            if name not in existing:
+                self.conn.execute(f'ALTER TABLE posted_comments ADD COLUMN {name} {decl}')
+        self.conn.commit()
 
     def has_review(self, repo_slug: str, pr_id: int, source_commit: str) -> bool:
         with self._lock:
@@ -72,11 +90,43 @@ class StateDB:
             )
             self.conn.commit()
 
-    def record_comment(self, repo_slug: str, pr_id: int, comment_id: int):
+    def record_comment(
+        self,
+        repo_slug: str,
+        pr_id: int,
+        comment_id: int,
+        *,
+        kind: str = 'inline',
+        file: str | None = None,
+        line: int | None = None,
+        title: str | None = None,
+        issue: str | None = None,
+        severity: str | None = None,
+        source_commit: str | None = None,
+    ):
         with self._lock:
             self.conn.execute(
-                'INSERT INTO posted_comments (repo_slug, pr_id, comment_id) VALUES (?, ?, ?)',
-                (repo_slug, pr_id, comment_id),
+                'INSERT INTO posted_comments '
+                '(repo_slug, pr_id, comment_id, kind, file, line, title, issue, severity, source_commit) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (repo_slug, pr_id, comment_id, kind, file, line, title, issue, severity, source_commit),
+            )
+            self.conn.commit()
+
+    def get_open_inline_comments(self, repo_slug: str, pr_id: int) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute(
+                'SELECT comment_id, file, line, title, issue, severity FROM posted_comments '
+                "WHERE repo_slug = ? AND pr_id = ? AND kind = 'inline' AND resolved = 0",
+                (repo_slug, pr_id),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def mark_comment_resolved(self, comment_id: int):
+        with self._lock:
+            self.conn.execute(
+                'UPDATE posted_comments SET resolved = 1 WHERE comment_id = ?',
+                (comment_id,),
             )
             self.conn.commit()
 

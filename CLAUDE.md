@@ -21,9 +21,9 @@ Local AI code review daemon for GitHub/BitBucket PRs. See README.md for full doc
 | `src/reviewd/daemon.py` | Poll loop, boot summary, status line, orchestration, signal handling |
 | `src/reviewd/reviewer.py` | Worktree lifecycle + AI CLI invocation (Popen) + JSON extraction |
 | `src/reviewd/prompt.py` | Built-in review prompt template + builder |
-| `src/reviewd/commenter.py` | Format findings as markdown, post via provider |
+| `src/reviewd/commenter.py` | Format findings as markdown, post via provider, resolve/reply on prior comments (BitBucket) |
 | `src/reviewd/config.py` | YAML + `${ENV_VAR}` loading, global + per-project merge, provider factory |
-| `src/reviewd/state.py` | SQLite: reviews + posted_comments (with get/delete by repo+PR) |
+| `src/reviewd/state.py` | SQLite: reviews + posted_comments (stores finding metadata + resolved flag; additive column migration) |
 | `src/reviewd/models.py` | Dataclasses: PRInfo, Finding, ReviewResult, configs, CLI enum |
 | `src/reviewd/providers/base.py` | Abstract GitProvider ABC |
 | `src/reviewd/providers/bitbucket.py` | BitBucket 2.0 API (httpx, pagination with ID dedup, inline comments) |

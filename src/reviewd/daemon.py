@@ -209,6 +209,7 @@ def _process_pr(
         _active_reviews[review_key] = (repo_config.name, time.monotonic())
 
     try:
+        prior_findings = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
         result = review_pr(
             repo_config.path,
             pr,
@@ -217,6 +218,7 @@ def _process_pr(
             model=repo_config.model or global_config.model,
             cli_args=global_config.cli_args,
             cli_defaults=global_config.cli_defaults,
+            prior_findings=prior_findings,
         )
         if _shutdown_event.is_set():
             state_db.finish_review(pr.repo_slug, pr.pr_id, pr.source_commit, error='shutdown')
