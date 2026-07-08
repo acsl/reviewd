@@ -160,6 +160,7 @@ def _process_pr(
     dry_run: bool = False,
     force: bool = False,
     ignore_draft: bool = False,
+    one_shot: bool = False,
 ):
     if _shutdown_event.is_set():
         return
@@ -172,7 +173,15 @@ def _process_pr(
         return
 
     if not force and state_db.has_review(pr.repo_slug, pr.pr_id, pr.source_commit):
-        logger.debug('PR #%d@%s already reviewed, skipping', pr.pr_id, pr.source_commit[:8])
+        if one_shot:
+            logger.log(
+                25,
+                'PR #%d already reviewed at %s — use --force to re-review',
+                pr.pr_id,
+                pr.source_commit[:8],
+            )
+        else:
+            logger.debug('PR #%d@%s already reviewed, skipping', pr.pr_id, pr.source_commit[:8])
         return
 
     if not force and project_config.review_cooldown_minutes > 0:
@@ -517,6 +526,7 @@ def review_single_pr(
             dry_run=dry_run,
             force=force,
             ignore_draft=True,
+            one_shot=True,
         )
     finally:
         state_db.close()
