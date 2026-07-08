@@ -17,7 +17,7 @@ import click
 import httpx
 
 from reviewd.colors import BOLD_WHITE, CLEAR_LINE, CYAN, DIM, GREEN, RESET, WHITE, YELLOW
-from reviewd.commenter import post_review
+from reviewd.commenter import post_review, supports_comment_threads
 from reviewd.config import get_provider, load_project_config
 from reviewd.models import GlobalConfig, PRInfo, ProjectConfig, RepoConfig
 from reviewd.reviewer import DEFAULT_TIMEOUT, cleanup_stale_worktrees, get_diff_lines, review_pr, terminate_all
@@ -218,7 +218,12 @@ def _process_pr(
         _active_reviews[review_key] = (repo_config.name, time.monotonic())
 
     try:
-        prior_findings = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
+        # Only providers that can resolve/reply to threads get prior findings fed back;
+        # otherwise the AI would tag prior_id/resolved and post_review would re-post them
+        # as duplicate comments while nothing ever gets marked resolved.
+        prior_findings = None
+        if supports_comment_threads(provider):
+            prior_findings = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
         result = review_pr(
             repo_config.path,
             pr,

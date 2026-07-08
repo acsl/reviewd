@@ -28,6 +28,11 @@ SEVERITY_EMOJI = {
 }
 
 
+def supports_comment_threads(provider) -> bool:
+    """Whether the provider can resolve/reply to existing comments (BitBucket only)."""
+    return hasattr(provider, 'resolve_comment') and hasattr(provider, 'reply_comment')
+
+
 def _hard_breaks(text: str) -> str:
     # BitBucket/CommonMark render a lone newline as a space. Two trailing spaces
     # before the newline turn it into a visible line break.
@@ -290,7 +295,7 @@ def post_review(
     # Findings whose prior_id points at a still-open prior comment map onto that thread
     # (resolve/reply); everything else — new issues and stale/bogus prior_ids — is posted
     # fresh. Providers that can't manage threads fall back to posting everything as new.
-    supports_threads = hasattr(provider, 'resolve_comment') and hasattr(provider, 'reply_comment')
+    supports_threads = supports_comment_threads(provider)
     if supports_threads:
         open_priors = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
         open_ids = {p['comment_id'] for p in open_priors}

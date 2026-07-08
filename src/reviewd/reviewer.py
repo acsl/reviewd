@@ -304,7 +304,15 @@ REVIEW_SCHEMA: dict = {
             },
         },
     },
-    'required': ['overview', 'findings', 'summary', 'tests_passed', 'approve', 'approve_reason'],
+    'required': [
+        'overview',
+        'findings',
+        'summary',
+        'tests_passed',
+        'approve',
+        'approve_reason',
+        'resolved_prior_ids',
+    ],
     'additionalProperties': False,
 }
 
