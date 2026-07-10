@@ -39,6 +39,7 @@ If something was introduced then reverted (or vice-versa), the author already tr
 {severity_section}\
 {instructions_section}\
 {approve_section}\
+{prior_findings_section}\
 
 ## Important
 - ONLY review code that is part of the diff. Do NOT flag pre-existing issues in unchanged code, even if the changed code interacts with it. If you notice a pre-existing problem, you may mention it as context but do NOT create a finding for it.
@@ -64,7 +65,8 @@ For `good`: praise for genuinely notable patterns or improvements. Skip generic 
 - Matter-of-fact. No flattery ("Great job", "Nice work"), no accusation. Read as a helpful AI suggestion, not a human reviewer.
 - State the preconditions: which inputs, environments, or scenarios are required for the bug to manifest. Severity depends on these — say so when relevant.
 - Do not overstate severity. Inflated criticals erode trust faster than missed nits.
-- Keep `issue` brief — one short paragraph, no line breaks inside prose.
+- In `issue`, wrap every code identifier, method/class name, constant, and file path in backticks (e.g. `getOemShipTo`, `STOCK_P/STOCK_D`, `OrderService.java`) so they render as inline code.
+- Keep `issue` readable — do NOT write one dense run-on paragraph. Lead with the core problem in one sentence, then put each additional point, precondition, or consequence on its own line.
 - In `fix`, preserve EXACT leading whitespace of the original line (tabs vs spaces, exact count). Do not change outer indentation level unless that IS the fix.
 
 ## Output
@@ -79,14 +81,16 @@ For `good`: praise for genuinely notable patterns or improvements. Skip generic 
       "title": "brief title",
       "file": "path/to/file.py",
       "line": 42,
-      "issue": "explanation",
-      "fix": "exact replacement for the SINGLE LINE specified by 'line'. Must have the same indentation as the original line. Can be multiple lines if the fix expands one line into several. No markdown, no code fences. null if the fix involves more than replacing one line."
+      "issue": "explanation — wrap code identifiers/paths in `backticks`; use newlines to separate distinct points instead of one run-on paragraph",
+      "fix": "exact replacement for the SINGLE LINE specified by 'line'. Must have the same indentation as the original line. Can be multiple lines if the fix expands one line into several. No markdown, no code fences. null if the fix involves more than replacing one line.",
+      "prior_id": null
     }}
   ],
-  "summary": "prioritized recommendations",
+  "summary": "prioritized recommendations as a markdown list — one `- ` bullet per recommendation, most important first, code identifiers in `backticks`",
   "tests_passed": true|false|null,
   "approve": true|false,
-  "approve_reason": "one sentence explaining why this PR is safe to auto-approve, or why it should not be. null if auto-approve is not enabled"
+  "approve_reason": "one sentence explaining why this PR is safe to auto-approve, or why it should not be. null if auto-approve is not enabled",
+  "resolved_prior_ids": []
 }}
 ```\
 {output_file_outro}\
@@ -116,11 +120,41 @@ def _output_sections(output_file: str | None) -> tuple[str, str, str]:
     return readonly_exception, output_intro, output_file_outro
 
 
+def _prior_findings_section(prior_findings: list[dict] | None) -> str:
+    if not prior_findings:
+        return ''
+    lines = [
+        '\n## Previously Reported Findings',
+        'These findings were posted as inline comments on earlier commits of this PR. '
+        'Inspect the CURRENT code and decide, for each, whether it is now resolved:',
+    ]
+    for pf in prior_findings:
+        loc = pf.get('file') or ''
+        if pf.get('line'):
+            loc += f":{pf['line']}"
+        sev = pf.get('severity') or ''
+        lines.append(f"- id {pf['comment_id']} [{sev}] {loc} — {pf.get('title', '')}: {pf.get('issue', '')}")
+    lines.extend(
+        [
+            '',
+            'Reflect this in your JSON output:',
+            '- For each previously reported finding the current code now RESOLVES, add '
+            '{"id": <id>, "note": "<what changed to fix it>"} to "resolved_prior_ids".',
+            '- For any finding you report that is the SAME issue as a previously reported one that is '
+            'still NOT resolved, set that finding\'s "prior_id" to the matching id (do not treat it as new).',
+            '- Report genuinely new issues as findings with "prior_id": null.',
+            '',
+        ]
+    )
+    return '\n'.join(lines)
+
+
 def build_review_prompt(
     pr: PRInfo,
     project_config: ProjectConfig,
     changed_files: list[str] | None = None,
     output_file: str | None = None,
+    prior_findings: list[dict] | None = None,
 ) -> str:
     step = 7
     validation_section = ''
@@ -177,6 +211,7 @@ def build_review_prompt(
         severity_section=severity_section,
         instructions_section=instructions_section,
         approve_section=approve_section,
+        prior_findings_section=_prior_findings_section(prior_findings),
         readonly_exception=readonly_exception,
         output_intro=output_intro,
         output_file_outro=output_file_outro,

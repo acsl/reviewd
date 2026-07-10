@@ -17,7 +17,7 @@ import click
 import httpx
 
 from reviewd.colors import BOLD_WHITE, CLEAR_LINE, CYAN, DIM, GREEN, RESET, WHITE, YELLOW
-from reviewd.commenter import post_review
+from reviewd.commenter import post_review, supports_comment_threads
 from reviewd.config import get_provider, load_project_config
 from reviewd.models import GlobalConfig, PRInfo, ProjectConfig, RepoConfig
 from reviewd.reviewer import DEFAULT_TIMEOUT, cleanup_stale_worktrees, get_diff_lines, review_pr, terminate_all
@@ -160,6 +160,7 @@ def _process_pr(
     dry_run: bool = False,
     force: bool = False,
     ignore_draft: bool = False,
+    one_shot: bool = False,
 ):
     if _shutdown_event.is_set():
         return
@@ -172,7 +173,15 @@ def _process_pr(
         return
 
     if not force and state_db.has_review(pr.repo_slug, pr.pr_id, pr.source_commit):
-        logger.debug('PR #%d@%s already reviewed, skipping', pr.pr_id, pr.source_commit[:8])
+        if one_shot:
+            logger.log(
+                25,
+                'PR #%d already reviewed at %s — use --force to re-review',
+                pr.pr_id,
+                pr.source_commit[:8],
+            )
+        else:
+            logger.debug('PR #%d@%s already reviewed, skipping', pr.pr_id, pr.source_commit[:8])
         return
 
     if not force and project_config.review_cooldown_minutes > 0:
@@ -209,6 +218,12 @@ def _process_pr(
         _active_reviews[review_key] = (repo_config.name, time.monotonic())
 
     try:
+        # Only providers that can resolve/reply to threads get prior findings fed back;
+        # otherwise the AI would tag prior_id/resolved and post_review would re-post them
+        # as duplicate comments while nothing ever gets marked resolved.
+        prior_findings = None
+        if supports_comment_threads(provider):
+            prior_findings = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
         result = review_pr(
             repo_config.path,
             pr,
@@ -217,6 +232,7 @@ def _process_pr(
             model=repo_config.model or global_config.model,
             cli_args=global_config.cli_args,
             cli_defaults=global_config.cli_defaults,
+            prior_findings=prior_findings,
         )
         if _shutdown_event.is_set():
             state_db.finish_review(pr.repo_slug, pr.pr_id, pr.source_commit, error='shutdown')
@@ -515,6 +531,7 @@ def review_single_pr(
             dry_run=dry_run,
             force=force,
             ignore_draft=True,
+            one_shot=True,
         )
     finally:
         state_db.close()

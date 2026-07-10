@@ -28,19 +28,32 @@ SEVERITY_EMOJI = {
 }
 
 
+def supports_comment_threads(provider) -> bool:
+    """Whether the provider can resolve/reply to existing comments (BitBucket only)."""
+    return hasattr(provider, 'resolve_comment') and hasattr(provider, 'reply_comment')
+
+
+def _hard_breaks(text: str) -> str:
+    # BitBucket/CommonMark render a lone newline as a space. Two trailing spaces
+    # before the newline turn it into a visible line break.
+    return text.replace('\n', '  \n')
+
+
 def _format_finding_summary(finding: Finding) -> str:
     loc = ''
     if finding.file:
         loc = f' — `{finding.file}`'
         if finding.line:
             loc += f' (line {finding.line})'
-    return f'- **{finding.title}**{loc}\n  {finding.issue}'
+    # Indent continuation lines so a multi-line issue stays inside the list item.
+    issue = finding.issue.replace('\n', '  \n  ')
+    return f'- **{finding.title}**{loc}  \n  {issue}'
 
 
 # TODO: support multi-line suggestions (end_line) — needs correct line range in provider API calls
 def _format_inline_comment(finding: Finding) -> str:
     emoji = SEVERITY_EMOJI.get(finding.severity, '')
-    parts = [f'{emoji} **{finding.title}**', finding.issue]
+    parts = [f'{emoji} **{finding.title}**', _hard_breaks(finding.issue)]
     if finding.fix:
         parts.append(f'```suggestion\n{finding.fix}\n```')
     return '\n\n'.join(parts)
@@ -99,7 +112,7 @@ def _format_summary_comment(
         lines.append('')
 
     if project_config.show_overview and result.overview:
-        lines.extend([result.overview, ''])
+        lines.extend([_hard_breaks(result.overview), ''])
 
     if result.tests_passed is not None:
         status = 'passed' if result.tests_passed else 'FAILED'
@@ -125,11 +138,15 @@ def _format_summary_comment(
         lines.append('')
 
     if result.summary:
-        lines.append(f'**Bottom line:** {result.summary}')
+        # Label on its own line + blank line so a markdown-list summary renders as a list
+        # rather than gluing the first bullet onto the bold label.
+        lines.append('**Bottom line:**')
+        lines.append('')
+        lines.append(_hard_breaks(result.summary))
         lines.append('')
 
     if approved and result.approve_reason:
-        lines.append(f'**Auto-approve rationale:** {result.approve_reason}')
+        lines.append(f'**Auto-approve rationale:** {_hard_breaks(result.approve_reason)}')
         lines.append('')
 
     if approve_blocked_reason:
@@ -204,6 +221,39 @@ def _resolve_auto_approve(
     return False, blocked if show_reason else None
 
 
+_RESOLVED_REPLY = '✅ This looks resolved by the latest changes.'
+_UNRESOLVED_REPLY = '⚠️ This has not been addressed yet.'
+
+
+def _handle_prior_comments(
+    provider,
+    state_db: StateDB,
+    pr: PRInfo,
+    result: ReviewResult,
+    matched_findings: list[Finding],
+    open_ids: set[int],
+):
+    resolved_notes = {r.comment_id: r.note for r in result.resolved_priors if r.comment_id in open_ids}
+
+    for cid, note in resolved_notes.items():
+        try:
+            if provider.resolve_comment(pr.repo_slug, pr.pr_id, cid):
+                body = f'{_RESOLVED_REPLY} {_hard_breaks(note)}'.strip() if note else _RESOLVED_REPLY
+                provider.reply_comment(pr.repo_slug, pr.pr_id, cid, body)
+                state_db.mark_comment_resolved(cid)
+        except Exception:
+            logger.exception('Failed to resolve prior comment %d on PR #%d', cid, pr.pr_id)
+
+    for f in matched_findings:
+        if f.prior_id in open_ids and f.prior_id not in resolved_notes:
+            try:
+                provider.reply_comment(
+                    pr.repo_slug, pr.pr_id, f.prior_id, f'{_UNRESOLVED_REPLY} {_hard_breaks(f.issue)}'.strip()
+                )
+            except Exception:
+                logger.exception('Failed to reply to prior comment %d on PR #%d', f.prior_id, pr.pr_id)
+
+
 def post_review(
     provider: GitProvider,
     state_db: StateDB,
@@ -239,10 +289,25 @@ def post_review(
         approve=result.approve,
         approve_reason=result.approve_reason,
         duration_seconds=result.duration_seconds,
+        resolved_priors=result.resolved_priors,
     )
 
+    # Findings whose prior_id points at a still-open prior comment map onto that thread
+    # (resolve/reply); everything else — new issues and stale/bogus prior_ids — is posted
+    # fresh. Providers that can't manage threads fall back to posting everything as new.
+    supports_threads = supports_comment_threads(provider)
+    if supports_threads:
+        open_priors = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
+        open_ids = {p['comment_id'] for p in open_priors}
+        matched_findings = [f for f in result.findings if f.prior_id in open_ids]
+        new_findings = [f for f in result.findings if f.prior_id not in open_ids]
+    else:
+        open_ids = set()
+        matched_findings = []
+        new_findings = list(result.findings)
+
     inline_severities = {s for s in project_config.inline_comments_for}
-    inline_findings = [f for f in result.findings if f.severity.value in inline_severities and f.file and f.line]
+    inline_findings = [f for f in new_findings if f.severity.value in inline_severities and f.file and f.line]
 
     max_inline = project_config.max_inline_comments
     if max_inline is not None and len(inline_findings) > max_inline:
@@ -255,29 +320,35 @@ def post_review(
 
     inline_ids = {id(f) for f in inline_findings}
 
+    # The summary lists only new findings; matched ones live in their existing threads.
+    summary_result = ReviewResult(
+        overview=result.overview,
+        findings=new_findings,
+        summary=result.summary,
+        tests_passed=result.tests_passed,
+        approve=result.approve,
+        approve_reason=result.approve_reason,
+        duration_seconds=result.duration_seconds,
+    )
+
     if dry_run:
         _print_dry_run(
-            result,
+            summary_result,
             inline_findings,
             inline_ids,
             global_config,
             project_config,
             cli,
             diff_lines=diff_lines,
+            matched_findings=matched_findings,
+            resolved_priors=result.resolved_priors,
         )
         return
 
-    logger.info('Posting review: %d inline + summary comment', len(inline_findings))
+    if supports_threads:
+        _handle_prior_comments(provider, state_db, pr, result, matched_findings, open_ids)
 
-    old_comment_ids = state_db.get_comment_ids(pr.repo_slug, pr.pr_id)
-    if old_comment_ids:
-        logger.info('Deleting %d old comments on PR #%d', len(old_comment_ids), pr.pr_id)
-        deleted = 0
-        for cid in old_comment_ids:
-            if provider.delete_comment(pr.repo_slug, pr.pr_id, cid):
-                deleted += 1
-        state_db.delete_comments(pr.repo_slug, pr.pr_id)
-        logger.info('Deleted %d/%d old comments', deleted, len(old_comment_ids))
+    logger.info('Posting review: %d inline + summary comment', len(inline_findings))
 
     for i, finding in enumerate(inline_findings, 1):
         logger.info('Posting inline comment %d/%d: %s:%s', i, len(inline_findings), finding.file, finding.line)
@@ -291,7 +362,18 @@ def post_review(
                 line=finding.line,
                 source_commit=pr.source_commit,
             )
-            state_db.record_comment(pr.repo_slug, pr.pr_id, comment_id)
+            state_db.record_comment(
+                pr.repo_slug,
+                pr.pr_id,
+                comment_id,
+                kind='inline',
+                file=finding.file,
+                line=finding.line,
+                title=finding.title,
+                issue=finding.issue,
+                severity=finding.severity.value,
+                source_commit=pr.source_commit,
+            )
         except Exception:
             logger.exception('Failed to post inline comment on %s:%s, skipping', finding.file, finding.line)
 
@@ -305,7 +387,7 @@ def post_review(
 
     logger.info('Posting summary comment')
     summary_body = _format_summary_comment(
-        result,
+        summary_result,
         inline_ids,
         global_config,
         project_config,
@@ -314,7 +396,7 @@ def post_review(
         approve_blocked_reason=approve_blocked_reason,
     )
     comment_id = provider.post_comment(pr.repo_slug, pr.pr_id, summary_body)
-    state_db.record_comment(pr.repo_slug, pr.pr_id, comment_id)
+    state_db.record_comment(pr.repo_slug, pr.pr_id, comment_id, kind='summary', source_commit=pr.source_commit)
 
     if project_config.critical_task and hasattr(provider, 'list_tasks'):
         _sync_critical_task(provider, pr, result, project_config)
@@ -331,10 +413,22 @@ def _print_dry_run(
     project_config: ProjectConfig,
     cli: CLI = CLI.CLAUDE,
     diff_lines: int | None = None,
+    matched_findings: list[Finding] | None = None,
+    resolved_priors: list | None = None,
 ):
     print('\n' + '=' * 60)
     print('DRY RUN — would post the following comments:')
     print('=' * 60)
+
+    if resolved_priors:
+        print(f'\n--- Resolve Prior Comments ({len(resolved_priors)}) ---')
+        for r in resolved_priors:
+            print(f'  comment {r.comment_id}: resolve + reply ({r.note or "resolved"})')
+
+    if matched_findings:
+        print(f'\n--- Reply "not addressed" ({len(matched_findings)}) ---')
+        for f in matched_findings:
+            print(f'  comment {f.prior_id}: {f.issue}')
 
     if inline_findings:
         print(f'\n--- Inline Comments ({len(inline_findings)}) ---')

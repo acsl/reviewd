@@ -29,6 +29,13 @@ class Finding:
     end_line: int | None
     issue: str
     fix: str | None = None
+    prior_id: int | None = None
+
+
+@dataclass
+class PriorResolution:
+    comment_id: int
+    note: str
 
 
 @dataclass
@@ -40,6 +47,7 @@ class ReviewResult:
     approve: bool = False
     approve_reason: str | None = None
     duration_seconds: float | None = None
+    resolved_priors: list[PriorResolution] = field(default_factory=list)
 
 
 @dataclass

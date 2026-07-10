@@ -149,6 +149,25 @@ class BitbucketProvider(GitProvider):
         logger.warning('Failed to delete comment %d: status=%d body=%s', comment_id, resp.status_code, resp.text[:200])
         return False
 
+    def resolve_comment(self, repo_slug: str, pr_id: int, comment_id: int) -> bool:
+        url = f'/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments/{comment_id}/resolve'
+        # Send an explicit empty JSON body: the client declares Content-Type: application/json,
+        # and BitBucket 400s when that header accompanies an empty (non-JSON) body.
+        resp = self._request_raw('POST', url, json={})
+        if resp.status_code in (200, 201):
+            logger.info('Resolved comment %d on PR #%d', comment_id, pr_id)
+            return True
+        logger.warning('Failed to resolve comment %d: status=%d body=%s', comment_id, resp.status_code, resp.text[:200])
+        return False
+
+    def reply_comment(self, repo_slug: str, pr_id: int, parent_id: int, body: str) -> int:
+        url = f'/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments'
+        payload = {'content': {'raw': f'{body}\n\n{BOT_MARKER}'}, 'parent': {'id': parent_id}}
+        resp = self._request('POST', url, json=payload)
+        comment_id = resp.json()['id']
+        logger.info('Posted reply %d to comment %d on PR #%d', comment_id, parent_id, pr_id)
+        return comment_id
+
     def approve_pr(self, repo_slug: str, pr_id: int) -> bool:
         # Standalone request — BB approve endpoint returns 400 with Content-Type header
         url = f'{BB_API_BASE}/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve'
