@@ -136,6 +136,6 @@ class GlobalConfig:
     max_concurrent_reviews: int = 4
     review_title: str = "review'd by {cli}"
     footer: str = (
-        'Automated review by [reviewd](https://github.com/simion/reviewd){duration}.'
+        'Automated review by [reviewd](https://github.com/acsl/reviewd){duration}.'
         ' Findings are AI-generated and may not be accurate.'
     )
