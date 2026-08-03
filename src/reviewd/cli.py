@@ -86,12 +86,25 @@ def main(ctx, config_path: str | None):
 
 UPDATE_CHECK_CACHE = Path(os.environ.get('XDG_CACHE_HOME', '~/.cache')).expanduser() / 'reviewd' / 'latest_version'
 UPDATE_CHECK_INTERVAL = 6 * 3600  # seconds
+UPDATE_TAGS_URL = 'https://api.github.com/repos/acsl/reviewd/tags'
+UPDATE_INSTALL_URL = 'git+https://github.com/acsl/reviewd'
+
+
+def _version_numbers(text: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in text.split('.') if part.isdigit())
+
+
+def _version_key(version: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    release, _, local = version.removeprefix('v').partition('+')
+    return _version_numbers(release), _version_numbers(local)
 
 
 def _check_for_updates():
-    try:
-        import time
+    import time
 
+    import httpx
+
+    try:
         now = time.time()
         latest = None
 
@@ -101,25 +114,18 @@ def _check_for_updates():
                 latest = UPDATE_CHECK_CACHE.read_text().strip()
 
         if latest is None:
-            import httpx
-
-            resp = httpx.get('https://pypi.org/pypi/reviewd/json', timeout=2)
-            latest = resp.json()['info']['version']
+            resp = httpx.get(UPDATE_TAGS_URL, timeout=2)
+            tags = [tag['name'] for tag in resp.json()]
+            if not tags:
+                return
+            latest = max(tags, key=_version_key)
             UPDATE_CHECK_CACHE.parent.mkdir(parents=True, exist_ok=True)
             UPDATE_CHECK_CACHE.write_text(latest)
 
-        installed = tuple(int(x) for x in VERSION.split('.'))
-        remote = tuple(int(x) for x in latest.split('.'))
-        if remote > installed:
-            exe = sys.executable
-            if 'uv/tools' in exe or 'uv\\tools' in exe:
-                cmd = 'uv tool upgrade reviewd'
-            elif 'pipx' in exe:
-                cmd = 'pipx upgrade reviewd'
-            else:
-                cmd = 'pip install --upgrade reviewd'
-            click.echo(f'{YELLOW}Update available: v{VERSION} \u2192 v{latest}  ({cmd}){RESET}')
-    except Exception:
+        if _version_key(latest) > _version_key(VERSION):
+            cmd = f'uv tool install --force {UPDATE_INSTALL_URL}@{latest}'
+            click.echo(f'{YELLOW}Update available: v{VERSION} \u2192 {latest}  ({cmd}){RESET}')
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, OSError):
         pass
 
 

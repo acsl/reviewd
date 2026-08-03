@@ -1,9 +1,10 @@
 # reviewd
 
-[![PyPI](https://img.shields.io/pypi/v/reviewd)](https://pypi.org/project/reviewd/)
-[![Python 3.12+](https://img.shields.io/pypi/pyversions/reviewd)](https://pypi.org/project/reviewd/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/simion/reviewd/actions/workflows/ci.yml/badge.svg)](https://github.com/simion/reviewd/actions/workflows/ci.yml)
+[![CI](https://github.com/acsl/reviewd/actions/workflows/ci.yml/badge.svg)](https://github.com/acsl/reviewd/actions/workflows/ci.yml)
+
+> ACSL fork of [simion/reviewd](https://github.com/simion/reviewd). Not published to PyPI — install from this repo (see below).
 
 **Your local code review assistant** — review GitHub and BitBucket pull requests from your terminal, powered by Claude Code / Gemini / Codex CLI.
 
@@ -36,15 +37,30 @@ https://github.com/user-attachments/assets/e99705d6-5595-478e-b5de-f47d3abcfa37
 
 ### 1. Install
 
-```bash
-pip install reviewd
-```
-
-Or with [`uv`](https://docs.astral.sh/uv/):
+With [`uv`](https://docs.astral.sh/uv/) (recommended — installs into an isolated environment and fetches Python for you):
 
 ```bash
-uv tool install reviewd
+uv tool install git+https://github.com/acsl/reviewd
 ```
+
+Or pin to a specific release:
+
+```bash
+uv tool install git+https://github.com/acsl/reviewd@v0.7.2+acsl.1
+```
+
+Upgrade later with `uv tool upgrade reviewd` (tracks `main`), or re-run the pinned command with `--force` for a specific tag. If you previously installed the upstream package from PyPI, add `--force` to replace it.
+
+<details>
+<summary><b>Without <code>uv</code></b></summary>
+
+```bash
+pipx install git+https://github.com/acsl/reviewd
+# or, into an existing environment:
+pip install git+https://github.com/acsl/reviewd
+```
+
+</details>
 
 Requires Python 3.12+. You also need `claude`, `gemini`, or `codex` CLI installed and authenticated.
 
