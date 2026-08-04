@@ -46,7 +46,7 @@ uv tool install git+https://github.com/acsl/reviewd
 Or pin to a specific release:
 
 ```bash
-uv tool install git+https://github.com/acsl/reviewd@v0.7.2+acsl.1
+uv tool install git+https://github.com/acsl/reviewd@v0.7.2+acsl.2
 ```
 
 Upgrade later with `uv tool upgrade reviewd` (tracks `main`), or re-run the pinned command with `--force` for a specific tag. If you previously installed the upstream package from PyPI, add `--force` to replace it.
