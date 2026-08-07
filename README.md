@@ -254,9 +254,11 @@ All gates must pass — if any one blocks, the PR is not approved. The `rules` f
 
 `auto_approve` can also be set in the global config and will be inherited by all repos. Per-project settings override global ones.
 
-### Subscription billing (`claude_interactive`)
+### Interactive session mode (`claude_interactive`)
 
-By default `cli: claude` runs Claude in headless mode (`claude --print`), which bills against your **Anthropic API credits**. The `claude_interactive` mode instead drives a real **interactive** Claude session, so reviews bill against your **Claude subscription** (Pro/Max) like normal CLI usage.
+> **Billing.** The `cli` setting has no effect on billing. reviewd sets no credentials and passes your environment through unchanged, so both modes bill however the `claude` CLI is authenticated: your subscription when you log in with `/login`, or API credits when `ANTHROPIC_API_KEY` is exported. Choose a mode on the sandboxing tradeoff below.
+
+By default `cli: claude` runs Claude in headless mode (`claude --print`) with `Write` and `Edit` blocked, so the review is strictly read-only. The `claude_interactive` mode instead drives a real **interactive** Claude session over a PTY, which requires `--dangerously-skip-permissions` so Claude can write its result file. Prefer the default unless headless mode fails for you.
 
 ```yaml
 cli: claude_interactive
@@ -273,7 +275,7 @@ You can also use it ad-hoc: `reviewd pr <repo> <id> --cli claude_interactive`.
 
 **Requirements & notes:**
 
-- `claude` must be logged in to your subscription (`claude` → `/login`). If `ANTHROPIC_API_KEY` is exported in the environment, Claude may still use it — unset it to force subscription usage.
+- `claude` must be authenticated (`claude` → `/login`). As with `cli: claude`, an exported `ANTHROPIC_API_KEY` takes precedence over your subscription login — unset it to force subscription usage.
 - Runs with `--dangerously-skip-permissions` so Claude's Read/Bash/Write tools run unattended inside the throwaway worktree. The session is hardened: `Edit` is disallowed (the reviewer only creates the result file) and MCP servers are disabled (`--strict-mcp-config`) for a clean, hermetic run.
 - Everything else (findings, inline comments, auto-approve, the public "review'd by Claude" title) behaves exactly like `claude`.
 
