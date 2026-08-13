@@ -123,6 +123,9 @@ class GlobalConfig:
     bitbucket: dict[str, str] = field(default_factory=dict)
     github: GithubConfig | None = None
     state_db: str = ''
+    # 'sqlite' keeps review state in state_db; 'provider' reads it back off the pull request
+    # instead, for throwaway CI containers that have nowhere to keep a database.
+    state: str = 'sqlite'
     cli: CLI = CLI.CLAUDE
     model: str | None = None
     cli_args: list[str] = field(default_factory=list)

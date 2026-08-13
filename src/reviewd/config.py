@@ -178,6 +178,10 @@ def load_global_config(path: str | Path | None = None) -> GlobalConfig:
     state_db = data.get('state_db', f'{default_data_home}/reviewd/state.db')
     state_db = str(Path(_resolve_env_vars(state_db)).expanduser())
 
+    state = str(data.get('state', 'sqlite')).strip().lower()
+    if state not in ('sqlite', 'provider'):
+        raise ValueError(f"Invalid state: {state!r} (expected 'sqlite' or 'provider')")
+
     global_aa = _parse_auto_approve(data['auto_approve']) if 'auto_approve' in data else None
 
     return GlobalConfig(
@@ -185,6 +189,7 @@ def load_global_config(path: str | Path | None = None) -> GlobalConfig:
         bitbucket=global_bb,
         github=global_gh,
         state_db=state_db,
+        state=state,
         cli=global_cli,
         model=data.get('model'),
         cli_args=data.get('cli_args', []),
@@ -328,3 +333,19 @@ def get_provider(global_config: GlobalConfig, repo_config: RepoConfig) -> GitPro
 
     workspace, token = resolve_bitbucket_config(global_config, repo_config)
     return BitbucketProvider(workspace, token)
+
+
+def make_state(global_config: GlobalConfig, provider: GitProvider):
+    """The review-state store for a single PR review: a local database, or the PR itself.
+
+    Both satisfy the same interface, so callers hand the result to _process_pr without caring which
+    they got.
+    """
+    if global_config.state == 'provider':
+        from reviewd.provider_state import ProviderState
+
+        return ProviderState(provider)
+
+    from reviewd.state import StateDB
+
+    return StateDB(global_config.state_db)

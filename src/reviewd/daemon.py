@@ -18,7 +18,7 @@ import httpx
 
 from reviewd.colors import BOLD_WHITE, CLEAR_LINE, CYAN, DIM, GREEN, RESET, WHITE, YELLOW
 from reviewd.commenter import post_review, supports_comment_threads
-from reviewd.config import get_provider, load_project_config
+from reviewd.config import get_provider, load_project_config, make_state
 from reviewd.models import GlobalConfig, PRInfo, ProjectConfig, RepoConfig
 from reviewd.reviewer import DEFAULT_TIMEOUT, cleanup_stale_worktrees, get_diff_lines, review_pr, terminate_all
 from reviewd.state import StateDB
@@ -352,6 +352,14 @@ def run_poll_loop(
 ):
     _shutdown_event.clear()
 
+    if global_config.state == 'provider':
+        # One store is shared across every repo here, while ProviderState is bound to a single
+        # repo's provider. It would also fetch every open PR's comments on every poll.
+        raise click.ClickException(
+            'state: provider only applies to one-shot reviews (reviewd pr <repo> <id>). '
+            'Set state: sqlite to run the daemon.'
+        )
+
     state_db = StateDB(global_config.state_db)
     lock_path = _get_pid_lock_path(global_config.state_db)
     _acquire_pid_lock(lock_path)
@@ -518,7 +526,7 @@ def review_single_pr(
 
     provider = get_provider(global_config, repo_config)
     project_config = load_project_config(repo_config.path, global_config)
-    state_db = StateDB(global_config.state_db)
+    state_db = make_state(global_config, provider)
 
     try:
         pr = provider.get_pr(repo_config.slug, pr_id)

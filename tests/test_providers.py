@@ -152,6 +152,25 @@ def test_bitbucket_pagination_dedup():
 
 
 @respx.mock
+def test_bitbucket_list_comments_drops_deleted_and_pending():
+    """Deleted comments come back as tombstones, and pending ones are an unpublished draft review."""
+    respx.get('https://api.bitbucket.org/2.0/repositories/team/repo/pullrequests/7/comments').mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                'values': [
+                    {'id': 1, 'content': {'raw': 'published'}, 'deleted': False, 'pending': False},
+                    {'id': 2, 'content': {'raw': ''}, 'deleted': True, 'pending': False},
+                    {'id': 3, 'content': {'raw': 'draft'}, 'deleted': False, 'pending': True},
+                ]
+            },
+        ),
+    )
+    provider = BitbucketProvider('team', 'fake-token')
+    assert [c['id'] for c in provider.list_comments('repo', 7)] == [1]
+
+
+@respx.mock
 def test_bitbucket_approve_self_returns_gracefully():
     respx.post('https://api.bitbucket.org/2.0/repositories/team/repo/pullrequests/7/approve').mock(
         return_value=httpx.Response(400, text='You can not approve your own pull request'),

@@ -162,6 +162,11 @@ Check API -> State Check (SQLite) -> Fetch & Worktree -> AI Review (Claude/Gemin
 4. Invokes the AI CLI with a structured prompt and JSON output schema
 5. Posts inline comments + summary comment, tracks state in SQLite
 
+Step 2 and step 5 need to know which commits were reviewed and which findings are still open. By
+default that is kept in a local SQLite database (`state_db`). Where there is nowhere to keep one — a
+one-shot review in a throwaway CI container — `state: provider` recovers the same information from
+the PR's own comments, so nothing is stored between runs. See [Configuration](#configuration).
+
 ## Configuration
 
 ### Global (`~/.config/reviewd/config.yaml`)
@@ -184,6 +189,11 @@ cli: claude                    # "claude", "claude_interactive", "gemini", or "c
 # footer: "Automated review by ..."
 # skip_title_patterns: ['[no-review]', '[wip]', '[no-claudiu]']
 # skip_authors: []
+
+# Where review state is kept: "sqlite" (default, in state_db) or "provider", which reads it back off
+# the PR's comments and stores nothing. "provider" is BitBucket-only and one-shot reviews only.
+# state: sqlite
+# state_db: ~/.local/share/reviewd/state.db
 
 instructions: |
   Be concise and constructive.
@@ -301,6 +311,7 @@ reviewd status <repo>                         # review history
 - **Full AI tool access** — the AI reads files, runs commands, explores code in the worktree
 - **JSON schema** — structured findings, the tool just parses and posts
 - **SQLite state** — WAL mode, thread-safe, tracks `(repo, pr_id, commit)` to avoid duplicates
+- **Stateless mode** — `state: provider` reads that same information back off the PR's own comments instead, for CI runs with no database to keep (BitBucket, one-shot reviews)
 - **Provider abstraction** — GitHub and BitBucket, extensible
 
 ## Security

@@ -6,12 +6,12 @@ import time
 
 import httpx
 
+from reviewd.marker import BOT_MARKER
 from reviewd.models import PRInfo
 from reviewd.providers.base import GitProvider
 
 logger = logging.getLogger(__name__)
 
-BOT_MARKER = '[](reviewd)'
 BB_API_BASE = 'https://api.bitbucket.org/2.0'
 
 # Matches "user@domain:token" format for Basic auth (email:token)
@@ -111,6 +111,15 @@ class BitbucketProvider(GitProvider):
         url = f'/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}'
         resp = self._request('GET', url)
         return self._pr_from_data(repo_slug, resp.json())
+
+    def list_comments(self, repo_slug: str, pr_id: int) -> list[dict]:
+        """Every published comment on a PR, oldest first.
+
+        Drops deleted comments (returned as tombstones with empty content) and pending ones, which
+        belong to a reviewer's unpublished draft review and aren't visible on the PR yet.
+        """
+        url = f'/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments'
+        return [c for c in self._paginate(url) if not c.get('deleted') and not c.get('pending')]
 
     def post_comment(
         self,

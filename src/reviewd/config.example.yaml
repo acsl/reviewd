@@ -146,5 +146,17 @@ repos: []
 
 # --- State ---
 
-# SQLite database for tracking reviews and posted comments
+# Where reviewd remembers which commits it reviewed and which findings it already posted.
+#
+#   sqlite    (default) a local database — see state_db below
+#   provider  read it back off the pull request instead, by recognising reviewd's own comments
+#
+# Use `provider` when there is nowhere to keep a database: a one-shot review in a throwaway CI
+# container starts with an empty one every time, so it re-reviews the same commit and posts a second
+# copy of every finding. It also notices threads resolved or comments deleted by hand, which the
+# local database cannot. BitBucket only, and only for one-shot reviews (`reviewd pr <repo> <id>`) —
+# the daemon would re-read every open PR's comments on every poll.
+# state: sqlite
+
+# SQLite database for tracking reviews and posted comments (state: sqlite only)
 # state_db: ~/.local/share/reviewd/state.db

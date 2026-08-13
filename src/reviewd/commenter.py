@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from reviewd.marker import SEVERITY_EMOJI, format_summary_marker
 from reviewd.models import (
     CLI,
     SEVERITY_ORDER,
@@ -19,13 +20,6 @@ from reviewd.state import StateDB
 logger = logging.getLogger(__name__)
 
 TASK_MARKER = '[reviewd]'
-
-SEVERITY_EMOJI = {
-    Severity.CRITICAL: '\U0001f534',
-    Severity.SUGGESTION: '\U0001f7e1',
-    Severity.NITPICK: '\U0001f535',
-    Severity.GOOD: '\U0001f7e2',
-}
 
 
 def supports_comment_threads(provider) -> bool:
@@ -395,6 +389,11 @@ def post_review(
         approved=approved,
         approve_blocked_reason=approve_blocked_reason,
     )
+    if pr.source_commit:
+        # Records the reviewed commit in the comment itself, which is how ProviderState later tells
+        # whether this PR has been reviewed at its current head. StateDB keeps the same fact in its
+        # reviews table, so the marker is unused there.
+        summary_body = f'{summary_body}\n\n{format_summary_marker(pr.source_commit)}'
     comment_id = provider.post_comment(pr.repo_slug, pr.pr_id, summary_body)
     state_db.record_comment(pr.repo_slug, pr.pr_id, comment_id, kind='summary', source_commit=pr.source_commit)
 
