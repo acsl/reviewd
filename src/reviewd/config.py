@@ -201,7 +201,7 @@ def load_global_config(path: str | Path | None = None) -> GlobalConfig:
         skip_authors=data.get('skip_authors', []),
         poll_interval_seconds=data.get('poll_interval_seconds', 60),
         max_concurrent_reviews=data.get('max_concurrent_reviews', 4),
-        review_title=data.get('review_title', "review'd by {cli}"),
+        review_title=data.get('review_title', GlobalConfig.review_title),
         footer=data.get('footer', GlobalConfig.footer),
     )
 

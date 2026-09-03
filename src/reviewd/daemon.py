@@ -224,12 +224,13 @@ def _process_pr(
         prior_findings = None
         if supports_comment_threads(provider):
             prior_findings = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
+        model = repo_config.model or global_config.model
         result = review_pr(
             repo_config.path,
             pr,
             project_config,
             cli=repo_config.cli,
-            model=repo_config.model or global_config.model,
+            model=model,
             cli_args=global_config.cli_args,
             cli_defaults=global_config.cli_defaults,
             prior_findings=prior_findings,
@@ -245,6 +246,7 @@ def _process_pr(
             project_config,
             global_config,
             cli=repo_config.cli,
+            model=model,
             dry_run=dry_run,
             diff_lines=diff_lines,
         )
