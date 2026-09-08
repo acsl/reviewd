@@ -10,6 +10,7 @@ import yaml
 
 from reviewd.models import (
     CLI,
+    DEFAULT_TIMEOUT,
     SEVERITY_ORDER,
     AutoApproveConfig,
     GithubConfig,
@@ -171,6 +172,7 @@ def load_global_config(path: str | Path | None = None) -> GlobalConfig:
                 github=repo_gh,
                 cli=repo_cli,
                 model=repo_data.get('model', data.get('model')),
+                timeout_seconds=int(repo_data.get('timeout_seconds', data.get('timeout_seconds', DEFAULT_TIMEOUT))),
             )
         )
 
@@ -194,6 +196,7 @@ def load_global_config(path: str | Path | None = None) -> GlobalConfig:
         model=data.get('model'),
         cli_args=data.get('cli_args', []),
         cli_defaults={CLI(k): v for k, v in data.get('cli_defaults', {}).items()},
+        timeout_seconds=int(data.get('timeout_seconds', DEFAULT_TIMEOUT)),
         instructions=data.get('instructions'),
         auto_approve=global_aa,
         inline_comments_for=data.get('inline_comments_for'),

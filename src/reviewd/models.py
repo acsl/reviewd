@@ -3,6 +3,8 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field
 
+DEFAULT_TIMEOUT = 600
+
 
 class Severity(enum.StrEnum):
     CRITICAL = 'critical'
@@ -111,6 +113,7 @@ class RepoConfig:
     github: GithubConfig | None = None
     cli: CLI = CLI.CLAUDE
     model: str | None = None
+    timeout_seconds: int = DEFAULT_TIMEOUT
 
     @property
     def slug(self) -> str:
@@ -130,6 +133,7 @@ class GlobalConfig:
     model: str | None = None
     cli_args: list[str] = field(default_factory=list)
     cli_defaults: dict[CLI, list[str]] = field(default_factory=dict)
+    timeout_seconds: int = DEFAULT_TIMEOUT
     instructions: str | None = None
     auto_approve: AutoApproveConfig | None = None
     inline_comments_for: list[str] | None = None
@@ -137,8 +141,7 @@ class GlobalConfig:
     skip_authors: list[str] = field(default_factory=list)
     poll_interval_seconds: int = 60
     max_concurrent_reviews: int = 4
-    review_title: str = ('AI review by '
-                         '{cli} {model}')
+    review_title: str = 'AI review by {cli} {model}'
     footer: str = (
         'Automated review by [reviewd](https://github.com/acsl/reviewd) {duration}.'
         '⚠️ Findings are AI-generated and may not be accurate.'

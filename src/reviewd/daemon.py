@@ -225,11 +225,13 @@ def _process_pr(
         if supports_comment_threads(provider):
             prior_findings = state_db.get_open_inline_comments(pr.repo_slug, pr.pr_id)
         model = repo_config.model or global_config.model
+        timeout = repo_config.timeout_seconds or global_config.timeout_seconds
         result = review_pr(
             repo_config.path,
             pr,
             project_config,
             cli=repo_config.cli,
+            timeout=timeout,
             model=model,
             cli_args=global_config.cli_args,
             cli_defaults=global_config.cli_defaults,

@@ -16,9 +16,10 @@ from pathlib import Path
 
 from reviewd.models import (
     CLI,
+    DEFAULT_TIMEOUT,
     Finding,
-    PriorResolution,
     PRInfo,
+    PriorResolution,
     ProjectConfig,
     ReviewResult,
     Severity,
@@ -28,7 +29,7 @@ from reviewd.prompt import build_review_prompt
 logger = logging.getLogger(__name__)
 
 JSON_BLOCK_PATTERN = re.compile(r'```json\s*\n(.*?)\n\s*```', re.DOTALL)
-DEFAULT_TIMEOUT = 600
+HEARTBEAT_INTERVAL = 30
 _GIT_ENV = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_LFS_SKIP_SMUDGE': '1'}
 
 _repo_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
@@ -130,8 +131,7 @@ def create_worktree(repo_path: str, pr: PRInfo) -> str:
             )
             if dest_result.returncode != 0:
                 raise RuntimeError(
-                    f'Cannot fetch destination branch {pr.destination_branch}: '
-                    f'{dest_result.stderr.decode().strip()}'
+                    f'Cannot fetch destination branch {pr.destination_branch}: {dest_result.stderr.decode().strip()}'
                 )
             # Try PR refs (works for forks and deleted branches)
             # GitHub: refs/pull/<id>/head, BitBucket: refs/pull-requests/<id>/from
@@ -581,7 +581,16 @@ def invoke_cli(
             proc.stdin.close()
             proc.stdin = None
 
+        stdout_lines: list[str] = []
         stderr_lines: list[str] = []
+
+        # Both streams must be drained on background threads: reading either one
+        # synchronously on the main thread blocks until the child closes it (i.e. until
+        # the child exits), which would starve `proc.wait(timeout=...)` below of any chance
+        # to enforce the timeout on a child that's still running but stalled.
+        def _stream_stdout():
+            for line in proc.stdout or []:
+                stdout_lines.append(line)
 
         def _stream_stderr():
             for line in proc.stderr or []:
@@ -589,12 +598,27 @@ def invoke_cli(
                 stderr_lines.append(line)
                 logger.debug('[%s] %s', cli.value, line)
 
+        stdout_thread = threading.Thread(target=_stream_stdout, daemon=True)
         stderr_thread = threading.Thread(target=_stream_stderr, daemon=True)
+        stdout_thread.start()
         stderr_thread.start()
 
+        start = time.monotonic()
         try:
-            stdout = proc.stdout.read() if proc.stdout else ''
-            proc.wait(timeout=timeout)
+            while True:
+                remaining = max(0.0, timeout - (time.monotonic() - start))
+                try:
+                    proc.wait(timeout=min(HEARTBEAT_INTERVAL, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    if remaining <= 0:
+                        raise
+                    logger.info(
+                        '%s still running (%.0fs elapsed, %ds timeout)',
+                        cli.value,
+                        time.monotonic() - start,
+                        timeout,
+                    )
         except (subprocess.TimeoutExpired, KeyboardInterrupt, SystemExit):
             proc.terminate()
             try:
@@ -606,8 +630,10 @@ def invoke_cli(
         finally:
             with _active_procs_lock:
                 _active_procs.discard(proc)
+            stdout_thread.join(timeout=5)
             stderr_thread.join(timeout=5)
 
+        stdout = ''.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)
         if proc.returncode != 0:
             logger.error('%s stderr: %s', cli.value, stderr)
