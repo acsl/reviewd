@@ -149,10 +149,14 @@ def _format_summary_comment(
         lines.append(f'**Auto-approve blocked:** AI recommended approval, but {approve_blocked_reason}.')
         lines.append('')
 
-    duration_str = f' in {_format_duration(result.duration_seconds)}' if result.duration_seconds else ''
-    footer = global_config.footer.replace('{duration}', duration_str)
-    lines.append(f'*{footer}*')
-    lines.append('*Replies to this comment are not monitored.*')
+    duration_str = _format_duration(result.duration_seconds) if result.duration_seconds else ''
+    footer = (
+        global_config.footer.replace('{cli}', cli_name)
+        .replace('{model}', model or '')
+        .replace('{duration}', duration_str)
+    )
+    footer_lines = [*footer.split('\n'), 'Replies to this comment are not monitored.']
+    lines.append(_hard_breaks('\n'.join(f'*{line}*' for line in footer_lines)))
 
     return '\n'.join(lines)
 

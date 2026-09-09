@@ -141,8 +141,8 @@ class GlobalConfig:
     skip_authors: list[str] = field(default_factory=list)
     poll_interval_seconds: int = 60
     max_concurrent_reviews: int = 4
-    review_title: str = 'AI review by {cli} {model}'
+    review_title: str = 'AI review'
     footer: str = (
-        'Automated review by [reviewd](https://github.com/acsl/reviewd) {duration}.'
+        'Automated review by [reviewd](https://github.com/acsl/reviewd) using {cli} ({model}) in {duration}.\n'
         '⚠️ Findings are AI-generated and may not be accurate.'
     )
