@@ -161,16 +161,16 @@ def _process_pr(
     force: bool = False,
     ignore_draft: bool = False,
     one_shot: bool = False,
-):
+) -> bool:
     if _shutdown_event.is_set():
-        return
+        return True
 
     if not pr.source_commit:
         logger.warning('PR #%d has no source commit (branch deleted?), skipping', pr.pr_id)
-        return
+        return True
 
     if not force and _should_skip(pr, global_config, ignore_draft=ignore_draft):
-        return
+        return True
 
     if not force and state_db.has_review(pr.repo_slug, pr.pr_id, pr.source_commit):
         if one_shot:
@@ -182,14 +182,14 @@ def _process_pr(
             )
         else:
             logger.debug('PR #%d@%s already reviewed, skipping', pr.pr_id, pr.source_commit[:8])
-        return
+        return not one_shot
 
     if not force and project_config.review_cooldown_minutes > 0:
         minutes = state_db.minutes_since_last_review(pr.repo_slug, pr.pr_id)
         if minutes is not None and minutes < project_config.review_cooldown_minutes:
             remaining = int(project_config.review_cooldown_minutes - minutes)
             logger.info('PR #%d in cooldown (%dmin remaining), skipping', pr.pr_id, remaining)
-            return
+            return True
 
     diff_lines = None
     if not force:
@@ -200,7 +200,7 @@ def _process_pr(
             diff_lines = get_diff_lines(repo_config.path, pr)
             if threshold > 0 and 0 <= diff_lines < threshold:
                 logger.info('PR #%d diff too small (%d lines < %d), skipping', pr.pr_id, diff_lines, threshold)
-                return
+                return True
 
     logger.log(
         22,
@@ -239,7 +239,7 @@ def _process_pr(
         )
         if _shutdown_event.is_set():
             state_db.finish_review(pr.repo_slug, pr.pr_id, pr.source_commit, error='shutdown')
-            return
+            return True
         post_review(
             provider,
             state_db,
@@ -254,9 +254,11 @@ def _process_pr(
         )
         state_db.finish_review(pr.repo_slug, pr.pr_id, pr.source_commit)
         logger.log(25, 'Finished review of PR #%d (%d findings)', pr.pr_id, len(result.findings))
+        return True
     except Exception as e:
         state_db.finish_review(pr.repo_slug, pr.pr_id, pr.source_commit, error=str(e))
         logger.exception('Failed to review PR #%d', pr.pr_id)
+        return False
     finally:
         with _active_reviews_lock:
             _active_reviews.pop(review_key, None)
@@ -513,7 +515,7 @@ def review_single_pr(
     pr_id: int,
     dry_run: bool = False,
     force: bool = False,
-):
+) -> bool:
     def _handle_shutdown(_signum, _frame):
         logger.info('Shutting down')
         raise SystemExit(0)
@@ -534,7 +536,7 @@ def review_single_pr(
 
     try:
         pr = provider.get_pr(repo_config.slug, pr_id)
-        _process_pr(
+        return _process_pr(
             pr,
             repo_config,
             project_config,

@@ -40,10 +40,18 @@
 # Can be overridden per repo.
 # model: claude-sonnet-4-5-20250514
 
-# Extra CLI arguments passed to claude/gemini (e.g. --allowedTools, --policy)
+# Hard wall-clock limit for a single AI invocation (default: 600).
+# On expiry the CLI is killed and the review is lost, so leave headroom above a
+# typical run. The prompt also tells the AI its budget so it can wrap up in time.
+# Can be overridden per repo.
+# timeout_seconds: 600
+
+# Extra CLI arguments appended to the built-in flags (e.g. --allowedTools, --policy).
+# For claude, --effort caps how deeply it explores, which is the main lever on how
+# long a review takes: low, medium, high, xhigh, max.
 # cli_args:
-#   - --some-flag
-#   - value
+#   - --effort
+#   - medium
 
 # Override the built-in default flags for each CLI binary.
 # Use this if a CLI tool changes its flags and reviewd hasn't been updated yet.

@@ -612,7 +612,7 @@ def invoke_cli(
                     break
                 except subprocess.TimeoutExpired:
                     if remaining <= 0:
-                        raise
+                        raise subprocess.TimeoutExpired(proc.args, timeout) from None
                     logger.info(
                         '%s still running (%.0fs elapsed, %ds timeout)',
                         cli.value,
@@ -770,7 +770,9 @@ def review_pr(
         output_path = os.path.join(worktree_path, output_name)
         Path(output_path).unlink(missing_ok=True)
     try:
-        prompt = build_review_prompt(pr, project_config, output_file=output_name, prior_findings=prior_findings)
+        prompt = build_review_prompt(
+            pr, project_config, output_file=output_name, prior_findings=prior_findings, timeout=timeout
+        )
         t0 = time.monotonic()
         output = invoke_cli(
             prompt,

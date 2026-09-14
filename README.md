@@ -185,6 +185,14 @@ bitbucket:
 cli: claude                    # "claude", "claude_interactive", "gemini", or "codex"
 # model: claude-sonnet-4-5-20250514
 
+# Hard limit for one AI invocation (default: 600). On expiry the CLI is killed and the
+# review is lost, so leave headroom. Can be overridden per repo.
+# timeout_seconds: 600
+
+# Extra flags appended to the built-in CLI command. For claude, --effort caps how deeply
+# it explores, which is the main lever on review duration: low, medium, high, xhigh, max.
+# cli_args: ['--effort', 'medium']
+
 # review_title: "review'd by {cli}"
 # footer: "Automated review by ..."
 # skip_title_patterns: ['[no-review]', '[wip]', '[no-claudiu]']

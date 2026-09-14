@@ -196,7 +196,8 @@ def pr(ctx, repo: str, pr_id: int, verbose: bool, dry_run: bool, force: bool, cl
     _ensure_global_config(ctx.obj['config_path'])
     config = load_global_config(ctx.obj['config_path'])
     _apply_cli_override(config, cli)
-    review_single_pr(config, repo, pr_id=pr_id, dry_run=dry_run, force=force)
+    if not review_single_pr(config, repo, pr_id=pr_id, dry_run=dry_run, force=force):
+        raise SystemExit(1)
 
 
 @main.command(name='ls')
