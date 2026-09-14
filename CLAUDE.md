@@ -31,17 +31,23 @@ Local AI code review daemon for GitHub/BitBucket PRs. See README.md for full doc
 
 ## Releasing
 
-Publish directly to PyPI with `uv publish`. No GitHub Releases — `gh` CLI is not available.
+Private fork — **never published to PyPI**, and no GitHub Releases (`gh` CLI is not available).
+A release is a version bump, a commit, and a tag.
 
-Requires `UV_PUBLISH_TOKEN` env var (PyPI API token).
+Versions carry a local suffix — `0.7.2+acsl.N`. Bump `N`; the tag is `v<version>`.
 
 ```bash
-# 1. Bump version in pyproject.toml
-# 2. Commit and push
-git add pyproject.toml && git commit -m "Bump version to X.Y.Z" && git push
-# 3. Clean old builds, build, and publish
-rm -rf dist && uv build && uv publish
+# 1. Bump version in pyproject.toml, e.g. 0.7.2+acsl.6 -> 0.7.2+acsl.7
+#    Commit the bump together with the change it releases, ending the
+#    message with "Bump version to X.Y.Z+acsl.N."
+git add pyproject.toml <changed files> && git commit -F - && git push origin main
+# 2. Tag and push the tag
+git tag -a 'v0.7.2+acsl.7' -m 'v0.7.2+acsl.7' && git push origin 'v0.7.2+acsl.7'
 ```
+
+None of this reaches CI on its own. The TeamCity PR-review builds run the
+`482650546777.dkr.ecr.us-east-1.amazonaws.com/acsl/reviewd:latest` image, built outside this repo;
+a change only takes effect in CI once that image is rebuilt and pushed to ECR.
 
 ## Known Limitations
 
