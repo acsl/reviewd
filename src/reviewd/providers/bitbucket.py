@@ -85,7 +85,7 @@ class BitbucketProvider(GitProvider):
             if not next_url:
                 break
             url = next_url
-            params = {}
+            params = None
             page += 1
         return results
 
