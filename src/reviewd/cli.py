@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -38,6 +39,8 @@ logging.addLevelName(PROGRESS_LOG_LEVEL, 'PROGRESS')
 REVIEW_LOG_LEVEL = 25
 logging.addLevelName(REVIEW_LOG_LEVEL, 'REVIEW')
 
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+
 
 class _ColorFormatter(logging.Formatter):
     COLORS = {
@@ -49,7 +52,15 @@ class _ColorFormatter(logging.Formatter):
         REVIEW_LOG_LEVEL: GREEN,
     }
 
+    def __init__(self, fmt: str, datefmt: str | None = None, color: bool = True):
+        super().__init__(fmt, datefmt=datefmt)
+        self.color = color
+
     def format(self, record):
+        if not self.color:
+            # Messages can carry their own color codes (e.g. the "Reviewing PR" line).
+            record.levelname = f'{record.levelname:<8}'
+            return _ANSI_RE.sub('', super().format(record))
         color = self.COLORS.get(record.levelno, '')
         record.levelname = f'{color}{record.levelname:<8}{RESET}'
         if color:
@@ -61,7 +72,13 @@ class _ColorFormatter(logging.Formatter):
 def _setup_logging(verbose: bool):
     level = logging.DEBUG if verbose else logging.INFO
     handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(_ColorFormatter('%(asctime)s %(levelname)s %(name)s — %(message)s', datefmt='%H:%M:%S'))
+    # Off a terminal (CI logs, redirected output) colors and the status-line clear are noise: CI
+    # log viewers render the leading carriage return as an extra empty line before every entry.
+    handler.setFormatter(
+        _ColorFormatter(
+            '%(asctime)s %(levelname)s %(name)s — %(message)s', datefmt='%H:%M:%S', color=sys.stderr.isatty()
+        )
+    )
     logging.root.addHandler(handler)
     logging.root.setLevel(level)
     logging.getLogger('httpx').setLevel(logging.WARNING)
