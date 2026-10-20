@@ -3,7 +3,8 @@ from __future__ import annotations
 from reviewd.models import PRInfo, ProjectConfig
 
 COMMIT_INSPECT_LIMIT = 5
-EXPLORE_FILE_BUDGET = 15
+EXPLORE_FILE_BUDGET_MIN = 15
+EXPLORE_FILE_BUDGET_MAX = 40
 # Leaves the remaining wall-clock for writing findings, so a long run degrades to a
 # partial review instead of being killed mid-exploration with nothing to show.
 OUTPUT_DEADLINE_RATIO = 0.7
@@ -41,8 +42,21 @@ If something was introduced then reverted (or vice-versa), the author already tr
 5. Explore related code only where it changes your assessment: direct callers of changed functions, and the models/views/utilities they touch. \
 Read at most {explore_file_budget} files beyond the changed files themselves. Do NOT traverse the codebase broadly. \
 If you cannot confirm something within that budget, state the uncertainty in the finding rather than continuing to search.
+6. Review EVERY changed file and every hunk. Do not stop once you have a few findings. For each change, check:
+   - Correctness: logic errors, edge cases, null/empty handling, wrong conditions or constants
+   - Failure paths: what happens when a DB, cache, mail, HTTP or filesystem call fails or times out; how exceptions propagate
+   - Concurrency: races, check-then-act sequences, shared mutable state, parallel requests for the same resource
+   - Transactions and consistency: transaction boundaries and read-only flags, partial updates, external calls inside transactions
+   - Security: authentication and authorization, input validation, injection/XSS, information disclosure (enumeration, error messages, logs)
+   - Contracts: callers and consumers of changed code, client/server and API contracts, config values and URL construction
+   - Performance, architecture, maintainability, and the project's own conventions
 {validation_section}\
-6. Review the changes for correctness, security, performance, architecture, and maintainability
+
+## Completeness
+The author addresses review feedback in rounds, and each round costs them a full revision cycle. \
+Report every issue that meets the bar below in this single pass. There is no cap on the number of findings. \
+An issue present in this diff that you leave out, and that a later review reports, is a failure of this review. \
+Before writing your output, go back over the list of changed files and confirm you reviewed each one.
 
 ## Severity Definitions
 {severity_section}\
@@ -53,7 +67,7 @@ If you cannot confirm something within that budget, state the uncertainty in the
 ## Important
 - ONLY review code that is part of the diff. Do NOT flag pre-existing issues in unchanged code, even if the changed code interacts with it. If you notice a pre-existing problem, you may mention it as context but do NOT create a finding for it.
 - Be constructive and specific — every issue must include a concrete suggested fix.
-- If the code looks fine, say so. Do NOT invent issues to justify the review. An empty findings list is a valid and preferred outcome for clean code.
+- If the code looks fine, say so. Do NOT invent issues to justify the review, but do not hold back real ones either. An empty findings list is right for clean code; a long one is right for a large change with many problems.
 - Double-check every "line" number before including it. The line number must point to the EXACT line in the diff where the issue occurs. Off-by-one errors make inline comments appear on the wrong line.
 - When in doubt, re-read the file to verify the line number.
 
@@ -146,6 +160,11 @@ def _time_budget_section(timeout: int | None) -> str:
     )
 
 
+def _explore_file_budget(changed_files: list[str] | None) -> int:
+    count = len(changed_files) if changed_files else 0
+    return min(EXPLORE_FILE_BUDGET_MAX, max(EXPLORE_FILE_BUDGET_MIN, count))
+
+
 def _prior_findings_section(prior_findings: list[dict] | None) -> str:
     if not prior_findings:
         return ''
@@ -236,7 +255,7 @@ def build_review_prompt(
         source_commit=pr.source_commit,
         time_budget_section=_time_budget_section(timeout),
         commit_inspect_limit=COMMIT_INSPECT_LIMIT,
-        explore_file_budget=EXPLORE_FILE_BUDGET,
+        explore_file_budget=_explore_file_budget(changed_files),
         validation_section=validation_section,
         severity_section=severity_section,
         instructions_section=instructions_section,

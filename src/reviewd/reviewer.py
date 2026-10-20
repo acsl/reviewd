@@ -234,6 +234,21 @@ def cleanup_worktree(repo_path: str, pr: PRInfo):
         logger.info('Cleaned up worktree at %s', worktree_dir)
 
 
+def get_changed_files(worktree_path: str, pr: PRInfo) -> list[str]:
+    result = subprocess.run(
+        ['git', 'diff', '--name-only', f'origin/{pr.destination_branch}...HEAD'],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        env=_GIT_ENV,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        logger.warning('Could not list changed files for PR #%d: %s', pr.pr_id, result.stderr.strip())
+        return []
+    return result.stdout.splitlines()
+
+
 def get_diff_lines(repo_path: str, pr: PRInfo) -> int:
     with _repo_locks[repo_path]:
         subprocess.run(
@@ -771,7 +786,12 @@ def review_pr(
         Path(output_path).unlink(missing_ok=True)
     try:
         prompt = build_review_prompt(
-            pr, project_config, output_file=output_name, prior_findings=prior_findings, timeout=timeout
+            pr,
+            project_config,
+            changed_files=get_changed_files(worktree_path, pr),
+            output_file=output_name,
+            prior_findings=prior_findings,
+            timeout=timeout,
         )
         t0 = time.monotonic()
         output = invoke_cli(
