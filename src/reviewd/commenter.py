@@ -332,20 +332,32 @@ def post_review(
         duration_seconds=result.duration_seconds,
     )
 
+    aa = project_config.auto_approve
+    approved = False
+    approve_blocked_reason = None
+    if aa.enabled:
+        approved, approve_blocked_reason = _resolve_auto_approve(aa, result, diff_lines)
+
+    # Printed before posting, so the findings reach the log even if a provider call fails.
+    _print_review(
+        summary_result,
+        inline_findings,
+        inline_ids,
+        global_config,
+        project_config,
+        cli,
+        model=model,
+        matched_findings=matched_findings,
+        resolved_priors=result.resolved_priors,
+        approved=approved,
+        approve_blocked_reason=approve_blocked_reason,
+        dry_run=dry_run,
+    )
     if dry_run:
-        _print_dry_run(
-            summary_result,
-            inline_findings,
-            inline_ids,
-            global_config,
-            project_config,
-            cli,
-            model=model,
-            diff_lines=diff_lines,
-            matched_findings=matched_findings,
-            resolved_priors=result.resolved_priors,
-        )
         return
+
+    if aa.enabled and not approved:
+        logger.info('Auto-approve blocked for PR #%d: %s', pr.pr_id, approve_blocked_reason or 'AI did not approve')
 
     if supports_threads:
         _handle_prior_comments(provider, state_db, pr, result, matched_findings, open_ids)
@@ -379,14 +391,6 @@ def post_review(
         except Exception:
             logger.exception('Failed to post inline comment on %s:%s, skipping', finding.file, finding.line)
 
-    aa = project_config.auto_approve
-    approved = False
-    approve_blocked_reason = None
-    if aa.enabled:
-        approved, approve_blocked_reason = _resolve_auto_approve(aa, result, diff_lines)
-        if not approved:
-            logger.info('Auto-approve blocked for PR #%d: %s', pr.pr_id, approve_blocked_reason or 'AI did not approve')
-
     logger.info('Posting summary comment')
     summary_body = _format_summary_comment(
         summary_result,
@@ -413,7 +417,7 @@ def post_review(
         logger.info('Auto-approved PR #%d', pr.pr_id)
 
 
-def _print_dry_run(
+def _print_review(
     result: ReviewResult,
     inline_findings: list[Finding],
     inline_ids: set[int],
@@ -421,12 +425,14 @@ def _print_dry_run(
     project_config: ProjectConfig,
     cli: CLI = CLI.CLAUDE,
     model: str | None = None,
-    diff_lines: int | None = None,
     matched_findings: list[Finding] | None = None,
     resolved_priors: list | None = None,
+    approved: bool = False,
+    approve_blocked_reason: str | None = None,
+    dry_run: bool = False,
 ):
     print('\n' + '=' * 60)
-    print('DRY RUN — would post the following comments:')
+    print('DRY RUN — would post the following comments:' if dry_run else 'Posting the following comments:')
     print('=' * 60)
 
     if resolved_priors:
@@ -445,13 +451,9 @@ def _print_dry_run(
             print(f'\n  File: {f.file}:{f.line}')
             print(f'  {_format_inline_comment(f)}')
 
-    aa = project_config.auto_approve
-    approved = False
-    approve_blocked_reason = None
-    if aa.enabled:
-        approved, approve_blocked_reason = _resolve_auto_approve(aa, result, diff_lines)
-        if not approved:
-            print(f'\n--- Auto-Approve: BLOCKED ({approve_blocked_reason or "AI did not approve"}) ---')
+    aa_enabled = project_config.auto_approve.enabled
+    if aa_enabled and not approved:
+        print(f'\n--- Auto-Approve: BLOCKED ({approve_blocked_reason or "AI did not approve"}) ---')
 
     print('\n--- Summary Comment ---')
     print(
@@ -467,7 +469,9 @@ def _print_dry_run(
         )
     )
 
-    if aa.enabled and approved:
-        print('\n--- Auto-Approve: WOULD APPROVE ---')
+    if aa_enabled and approved:
+        print('\n--- Auto-Approve: WOULD APPROVE ---' if dry_run else '\n--- Auto-Approve: APPROVING ---')
 
-    print('=' * 60 + '\n')
+    # stdout is block-buffered under CI while logging goes to stderr unbuffered; flush so the
+    # block lands in the build log before the posting log lines.
+    print('=' * 60 + '\n', flush=True)
