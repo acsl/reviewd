@@ -341,6 +341,8 @@ CLI_DEFAULTS: dict[CLI, list[str]] = {
         '--mcp-config',
         '{"mcpServers":{}}',
         '--strict-mcp-config',
+        '--output-format',
+        'json',
     ],
     CLI.GEMINI: ['gemini', '--approval-mode', 'yolo', '-e', 'none'],
     CLI.CODEX: ['codex', 'exec', '--sandbox', 'workspace-write'],
@@ -662,6 +664,8 @@ def invoke_cli(
                 logger.info('Read output from -o file (%d chars)', len(result))
                 return result
 
+        if cli == CLI.CLAUDE:
+            return _unwrap_claude_result(stdout)
         return stdout
     finally:
         Path(prompt_file).unlink(missing_ok=True)
@@ -669,6 +673,41 @@ def invoke_cli(
             Path(schema_file).unlink(missing_ok=True)
         if output_file:
             Path(output_file).unlink(missing_ok=True)
+
+
+def _format_tokens(count: int) -> str:
+    if count >= 1_000_000:
+        return f'{count / 1_000_000:.2f}M'
+    if count >= 1_000:
+        return f'{count / 1_000:.1f}K'
+    return str(count)
+
+
+def _unwrap_claude_result(stdout: str) -> str:
+    """Logs token usage from claude's `--output-format json` envelope and returns its result text.
+
+    Output that is not an envelope (a `cli_defaults` override without the flag) is returned as is.
+    """
+    try:
+        envelope = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout
+    if not isinstance(envelope, dict) or envelope.get('type') != 'result':
+        return stdout
+
+    usage = envelope.get('usage') or {}
+    cost = envelope.get('total_cost_usd')
+    logger.info(
+        'Usage: %s turns, %s input + %s cache write + %s cache read + %s output tokens, est. %s at list price (%s)',
+        envelope.get('num_turns', '?'),
+        _format_tokens(usage.get('input_tokens', 0)),
+        _format_tokens(usage.get('cache_creation_input_tokens', 0)),
+        _format_tokens(usage.get('cache_read_input_tokens', 0)),
+        _format_tokens(usage.get('output_tokens', 0)),
+        f'${cost:.2f}' if cost is not None else '?',
+        ', '.join(envelope.get('modelUsage') or {}) or 'unknown model',
+    )
+    return envelope.get('result') or ''
 
 
 def _find_last_json_object(output: str) -> str | None:

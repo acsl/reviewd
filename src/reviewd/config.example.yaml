@@ -65,6 +65,8 @@
 #     - --mcp-config
 #     - '{"mcpServers":{}}'
 #     - --strict-mcp-config
+#     - --output-format
+#     - json
 #   gemini:
 #     - gemini
 #     - --approval-mode
