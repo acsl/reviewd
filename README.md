@@ -62,6 +62,19 @@ pip install git+https://github.com/acsl/reviewd
 
 </details>
 
+<details>
+<summary><b>From a local checkout (development)</b></summary>
+
+To have `reviewd` on your `PATH` always run the code in your working copy, install it editable from the repo root:
+
+```bash
+uv tool install --editable --force .
+```
+
+Code changes, branch switches and pulls take effect on the next run without reinstalling. Re-run the command when dependencies in `pyproject.toml` change — the tool's environment doesn't pick those up — or to refresh the version shown by `uv tool list`.
+
+</details>
+
 Requires Python 3.12+. You also need `claude`, `gemini`, or `codex` CLI installed and authenticated.
 
 > **Running on a headless server?** Claude CLI's interactive `/login` expires and can't re-authenticate without a browser. Generate a long-lived token instead:
