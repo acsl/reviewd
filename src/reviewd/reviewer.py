@@ -313,8 +313,9 @@ REVIEW_SCHEMA: dict = {
                 'properties': {
                     'id': {'type': 'integer'},
                     'note': {'type': 'string'},
+                    'kind': {'type': 'string', 'enum': ['fixed', 'accepted']},
                 },
-                'required': ['id', 'note'],
+                'required': ['id', 'note', 'kind'],
                 'additionalProperties': False,
             },
         },
@@ -789,7 +790,8 @@ def parse_review_result(data: dict) -> ReviewResult:
     resolved_priors = []
     for r in data.get('resolved_prior_ids', []):
         try:
-            resolved_priors.append(PriorResolution(comment_id=int(r['id']), note=r.get('note', '')))
+            kind = 'accepted' if r.get('kind') == 'accepted' else 'fixed'
+            resolved_priors.append(PriorResolution(comment_id=int(r['id']), note=r.get('note', ''), kind=kind))
         except (KeyError, TypeError, ValueError):
             logger.warning('Skipping malformed resolved_prior_ids entry: %r', r)
     return ReviewResult(

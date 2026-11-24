@@ -38,6 +38,8 @@ class Finding:
 class PriorResolution:
     comment_id: int
     note: str
+    # fixed: the code now resolves it. accepted: a reply in the thread argued it away and the model agreed.
+    kind: str = 'fixed'
 
 
 @dataclass

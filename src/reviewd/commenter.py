@@ -222,7 +222,14 @@ def _resolve_auto_approve(
 
 
 _RESOLVED_REPLY = '✅ This looks resolved by the latest changes.'
+_ACCEPTED_REPLY = '✅ Agreed, closing:'
 _UNRESOLVED_REPLY = '⚠️ This has not been addressed yet.'
+
+
+def _last_reply_is_ours(prior: dict) -> bool:
+    """Whether reviewd already had the last word in a thread: then a new "not addressed" adds nothing."""
+    replies = prior.get('replies') or []
+    return bool(replies) and bool(replies[-1].get('by_reviewd'))
 
 
 def _handle_prior_comments(
@@ -233,12 +240,15 @@ def _handle_prior_comments(
     matched_findings: list[Finding],
     open_ids: set[int],
 ):
-    resolved_notes = {r.comment_id: r.note for r in result.resolved_priors if r.comment_id in open_ids}
+    resolutions = {r.comment_id: r for r in result.resolved_priors if r.comment_id in open_ids}
+    resolved_notes = {cid: r.note for cid, r in resolutions.items()}
 
-    for cid, note in resolved_notes.items():
+    for cid, resolution in resolutions.items():
+        note = resolution.note
+        prefix = _ACCEPTED_REPLY if resolution.kind == 'accepted' else _RESOLVED_REPLY
         try:
             if provider.resolve_comment(pr.repo_slug, pr.pr_id, cid):
-                body = f'{_RESOLVED_REPLY} {_hard_breaks(note)}'.strip() if note else _RESOLVED_REPLY
+                body = f'{prefix} {_hard_breaks(note)}'.strip() if note else prefix
                 provider.reply_comment(pr.repo_slug, pr.pr_id, cid, body)
                 state_db.mark_comment_resolved(cid)
         except Exception:
@@ -302,9 +312,13 @@ def post_review(
         open_ids = {p['comment_id'] for p in open_priors}
         matched_findings = [f for f in result.findings if f.prior_id in open_ids]
         new_findings = [f for f in result.findings if f.prior_id not in open_ids]
+        # One "not addressed" per turn: once reviewd has the last word, it waits for an answer.
+        quiet_ids = {p['comment_id'] for p in open_priors if _last_reply_is_ours(p)}
+        reply_findings = [f for f in matched_findings if f.prior_id not in quiet_ids]
     else:
         open_ids = set()
         matched_findings = []
+        reply_findings = []
         new_findings = list(result.findings)
 
     inline_severities = {s for s in project_config.inline_comments_for}
@@ -347,7 +361,7 @@ def post_review(
         project_config,
         cli,
         model=model,
-        matched_findings=matched_findings,
+        matched_findings=reply_findings,
         resolved_priors=result.resolved_priors,
         approved=approved,
         approve_blocked_reason=approve_blocked_reason,
@@ -360,7 +374,7 @@ def post_review(
         logger.info('Auto-approve blocked for PR #%d: %s', pr.pr_id, approve_blocked_reason or 'AI did not approve')
 
     if supports_threads:
-        _handle_prior_comments(provider, state_db, pr, result, matched_findings, open_ids)
+        _handle_prior_comments(provider, state_db, pr, result, reply_findings, open_ids)
 
     logger.info('Posting review: %d inline + summary comment', len(inline_findings))
 
@@ -438,7 +452,8 @@ def _print_review(
     if resolved_priors:
         print(f'\n--- Resolve Prior Comments ({len(resolved_priors)}) ---')
         for r in resolved_priors:
-            print(f'  comment {r.comment_id}: resolve + reply ({r.note or "resolved"})')
+            what = 'agreed' if getattr(r, 'kind', 'fixed') == 'accepted' else 'resolved'
+            print(f'  comment {r.comment_id}: resolve + reply, {what} ({r.note or what})')
 
     if matched_findings:
         print(f'\n--- Reply "not addressed" ({len(matched_findings)}) ---')

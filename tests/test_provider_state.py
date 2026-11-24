@@ -41,12 +41,14 @@ RESOLVED = {}
 UNRESOLVED = None
 
 
-def _comment(cid, raw, *, inline=None, resolution=_ABSENT, parent=None, created=None):
+def _comment(cid, raw, *, inline=None, resolution=_ABSENT, parent=None, created=None, author=None):
     data = {
         'id': cid,
         'content': {'raw': raw},
         'created_on': (created or datetime.now(UTC)).isoformat(),
     }
+    if author is not None:
+        data['user'] = {'display_name': author}
     if inline is not None:
         data['inline'] = inline
     if resolution is not _ABSENT:
@@ -88,6 +90,7 @@ def test_open_inline_comments_recovers_the_finding():
             'title': 'NPE escapes the caller',
             'issue': 'Line one.\nLine two.',
             'severity': 'critical',
+            'replies': [],
         }
     ]
 
@@ -154,6 +157,39 @@ def test_ignores_replies_and_summaries():
         ]
     )
     assert state.get_open_inline_comments('repo', 1) == []
+
+
+def test_open_threads_carry_their_replies_oldest_first():
+    """Replies reach the model, including replies to replies; markers are stripped, reviewd's own are flagged."""
+    t0 = datetime(2026, 11, 20, tzinfo=UTC)
+    state = state_for(
+        [
+            _finding_comment(11, make_finding(), inline={'path': 'a/B.java', 'to': 71}, resolution=UNRESOLVED),
+            _comment(
+                14,
+                'Not changed: needs a pom change.\n\n[](fixd)',
+                inline={'path': 'a/B.java', 'to': 71},
+                parent=12,
+                created=t0 + timedelta(minutes=2),
+                author='Teamcity fixd',
+            ),
+            _comment(
+                12,
+                f'⚠️ This has not been addressed yet.\n\n{BOT_MARKER}',
+                inline={'path': 'a/B.java', 'to': 71},
+                parent=11,
+                created=t0 + timedelta(minutes=1),
+                author='Teamcity reviewd',
+            ),
+            _comment(20, 'unrelated thread reply', parent=19, created=t0),
+        ]
+    )
+
+    [thread] = state.get_open_inline_comments('repo', 1)
+    assert thread['replies'] == [
+        {'author': 'Teamcity reviewd', 'text': '⚠️ This has not been addressed yet.', 'by_reviewd': True},
+        {'author': 'Teamcity fixd', 'text': 'Not changed: needs a pom change.\n\n[](fixd)', 'by_reviewd': False},
+    ]
 
 
 def test_falls_back_to_the_old_side_of_the_diff():

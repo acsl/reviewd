@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from reviewd.marker import is_bot_comment, parse_inline_comment, parse_summary_marker
+from reviewd.marker import is_bot_comment, parse_inline_comment, parse_summary_marker, strip_markers
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +81,14 @@ class ProviderState:
         "🔴 **Careful here**" matches it, and claiming that thread would mean resolving and replying
         to someone else's comment. Missing one of reviewd's own comments only costs a duplicate, so
         the check errs towards rejecting.
+
+        Each thread also carries its replies (see `_replies_by_thread`): the model weighs a reply that
+        declines the finding, and post_review stays quiet when reviewd already had the last word.
         """
+        comments = self._comments(repo_slug, pr_id)
+        replies = _replies_by_thread(comments)
         open_comments = []
-        for c in self._comments(repo_slug, pr_id):
+        for c in comments:
             inline = c.get('inline')
             if not inline or c.get('parent') or c.get('resolution') is not None:
                 continue
@@ -103,6 +108,7 @@ class ProviderState:
                     'title': parsed['title'],
                     'issue': parsed['issue'],
                     'severity': parsed['severity'],
+                    'replies': replies.get(c['id'], []),
                 }
             )
         return open_comments
@@ -132,6 +138,44 @@ class ProviderState:
 
     def close(self) -> None:
         pass
+
+
+def _replies_by_thread(comments: list[dict]) -> dict[int, list[dict]]:
+    """Every reply under each thread root, oldest first, as the prompt and post_review read them.
+
+    BitBucket links a reply to the comment it answers, which can itself be a reply, so each reply is
+    followed up to its root. `by_reviewd` tells reviewd's own replies apart by marker, as everywhere
+    else; the author is only shown to the model.
+    """
+    by_id = {c['id']: c for c in comments if 'id' in c}
+
+    def root_of(comment: dict) -> int | None:
+        seen = set()
+        while comment.get('parent'):
+            parent_id = comment['parent'].get('id')
+            if parent_id in seen or parent_id not in by_id:
+                return parent_id
+            seen.add(parent_id)
+            comment = by_id[parent_id]
+        return comment.get('id')
+
+    def order(c: dict) -> tuple:
+        return _created(c) or datetime.min.replace(tzinfo=UTC), c.get('id', 0)
+
+    threads: dict[int, list[dict]] = {}
+    for c in sorted((c for c in comments if c.get('parent')), key=order):
+        root = root_of(c)
+        if root is None:
+            continue
+        raw = _raw(c)
+        threads.setdefault(root, []).append(
+            {
+                'author': (c.get('user') or {}).get('display_name') or 'someone',
+                'text': strip_markers(raw).strip(),
+                'by_reviewd': is_bot_comment(raw),
+            }
+        )
+    return threads
 
 
 def _raw(comment: dict) -> str:
